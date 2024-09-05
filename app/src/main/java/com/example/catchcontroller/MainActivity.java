@@ -10,12 +10,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.Matrix;
 import android.graphics.drawable.BitmapDrawable;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.media.ThumbnailUtils;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.view.animation.Animation;
+import android.view.animation.RotateAnimation;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.ImageButton;
@@ -101,6 +108,11 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     TextView tvCompassHeading, tvMapLatitude, tvMapLongitude;
     ImageView ivCompassHeading;
 
+    private boolean compassFound = false;
+    private Compass compass;
+    private float currentAzimuth;
+    float bearing = 0;
+
     @SuppressLint("MissingPermission")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -139,6 +151,11 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         rssi_handler.sendEmptyMessage(ID_RSSI);
 
         tVobject = (TextView) findViewById(R.id.tVobject);
+
+        tvCompassHeading = (TextView) findViewById(R.id.tvCompassHeading);
+        ivCompassHeading = (ImageView) findViewById(R.id.ivCompassHeading);
+
+        setupCompass();
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -563,6 +580,116 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         unregisterReceiver(BRScan);
         unregisterReceiver(mBroadcastReceiver2);
         unregisterReceiver(mBroadcastReceiver4);
+        compass = null;
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        Log.d(TAG, "start compass");
+        compass.start();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        compass.stop();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        compass.start();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        Log.d(TAG, "stop compass");
+        compass.stop();
+    }
+
+    private void setupCompass() {
+        compass = new Compass(this);
+        Compass.CompassListener cl = new Compass.CompassListener() {
+            @Override
+            public void onNewAzimuth(float azimuth) {
+                adjustArrow(azimuth);
+            }
+
+            @Override
+            public void onMagField(float strength) {
+                MagField(strength);
+            }
+        };
+        compass.setListener(cl);
+
+        if (compass != null) {
+            compass.setListener(cl);
+            if (compass.getStatus()) {
+                compassFound = true;
+            }
+        }
+        if (!compassFound) {
+            tvCompassHeading.setText("Sorry, but this device not contain magnetic sensor.");
+        }
+    }
+
+    private void MagField(float strength) {
+        //tvMagStrength.setText(strength + " μT"); //milli Tesla
+    }
+
+    private void adjustArrow(float azimuth) {
+        if (compass.getSensorData()) {
+            float heading = azimuth;
+            heading = (bearing - heading) * -1;
+
+            Animation an = new RotateAnimation(-currentAzimuth, -heading,
+                    Animation.RELATIVE_TO_SELF, 0.5f, Animation.RELATIVE_TO_SELF, 0.5f);
+            currentAzimuth = heading;
+
+            an.setDuration(500);
+            an.setRepeatCount(0);
+            an.setFillAfter(true);
+
+            ivCompassHeading.startAnimation(an);
+            //tvOutput.setText(String.valueOf(azimuth));
+            //String.valueOf(heading) + " " +
+            tvCompassHeading.setText(showDirection(heading));
+        } else {
+            tvCompassHeading.setText("Sorry, no data from compass sensor.");
+        }
+    }
+
+    private String showDirection(float degree) {
+        String heading = "";
+        if (degree >= 338 || degree < 23) {
+            //GOING NORTH
+            heading = "N";
+        } else if (degree >= 23 && degree < 68) {
+            //GOING NORTH EAST
+            heading = "NE";
+        } else if (degree >= 68 && degree < 113) {
+            //GOING EAST
+            heading = "E";
+        } else if (degree >= 113 && degree < 158) {
+            //GOING SOUTH EAST
+            heading = "SE";
+        } else if (degree >= 158 && degree < 203) {
+            //GOING SOUTH
+            heading = "S";
+        } else if (degree >= 203 && degree < 248) {
+            //GOING SOUTH WEST
+            heading = "SW";
+        } else if (degree >= 248 && degree < 293) {
+            //GOING WEST
+            heading = "W";
+        } else if (degree >= 293 && degree < 338) {
+            //GOING NORTH WEST
+            heading = "NW";
+        }
+
+        return Math.round(degree) + "° " + heading;
     }
 
     @SuppressLint({"MissingPermission", "CheckResult"})
