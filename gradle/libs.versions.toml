@@ -15,6 +15,9 @@ rxjavaVersion = "2.2.21"
 playServicesMaps = "19.0.0"
 tensorflowAndroid = "1.2.0-preview"
 tensorflowAndroidVersion = "1.13.1"
+tensorflowLiteSupport = "0.1.0"
+tensorflowLiteMetadata = "0.1.0"
+tensorflowLiteGpu = "2.3.0"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -32,6 +35,9 @@ rxjava2-rxjava = { module = "io.reactivex.rxjava2:rxjava", version.ref = "rxjava
 play-services-maps = { group = "com.google.android.gms", name = "play-services-maps", version.ref = "playServicesMaps" }
 tensorflow-android = { module = "org.tensorflow:tensorflow-android", version.ref = "tensorflowAndroid" }
 tensorflow-tensorflow-android = { group = "org.tensorflow", name = "tensorflow-android", version.ref = "tensorflowAndroidVersion" }
+tensorflow-lite-support = { group = "org.tensorflow", name = "tensorflow-lite-support", version.ref = "tensorflowLiteSupport" }
+tensorflow-lite-metadata = { group = "org.tensorflow", name = "tensorflow-lite-metadata", version.ref = "tensorflowLiteMetadata" }
+tensorflow-lite-gpu = { group = "org.tensorflow", name = "tensorflow-lite-gpu", version.ref = "tensorflowLiteGpu" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -10,12 +10,15 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.BitmapDrawable;
+import android.media.ThumbnailUtils;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ListView;
 import androidx.activity.EdgeToEdge;
@@ -27,6 +30,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -49,8 +53,10 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
+import com.example.catchcontroller.ml.ModelUnquant;
+import org.tensorflow.lite.DataType;
+import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
+import java.nio.ByteBuffer;
 
 public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener {
     private static final String TAG = "myApp";
@@ -79,7 +85,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
             Manifest.permission.READ_EXTERNAL_STORAGE,
             Manifest.permission.BLUETOOTH};
-
+    int imageSize = 224;
     private HandlerThread stream_thread,flash_thread,rssi_thread;
     private Handler stream_handler,flash_handler,rssi_handler;
     private ImageView monitor;
@@ -88,18 +94,13 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     private final int ID_RSSI = 202;
     private boolean flash_on_off = false;
     private String ip_text = "192.168.0.105";
-    public static final int INPUT_SIZE = 224;
-    public static final int IMAGE_MEAN = 128;
-    public static final float IMAGE_STD = 128.0f;
-    public static final String INPUT_NAME = "input";
-    public static final String OUTPUT_NAME = "final_result";
-    public static final String MODEL_FILE = "file:///android_asset/rounded_graph.pb";
-    public static final String LABEL_FILE = "file:///android_asset/retrained_labels.txt";
-    Bitmap bitmapGlobal;
-    public Classifier classifier;
-    public Executor executor = Executors.newSingleThreadExecutor();
     public TextView tVobject;
-    Button btnScan, btnForward, btnBackward, btnStop, btnLeft, btnRight,btnAnalized;
+    Button btnScan,btnAnalized;
+    ImageButton btnForward, btnBackward, btnStop, btnLeft, btnRight;
+
+    TextView tvCompassHeading, tvMapLatitude, tvMapLongitude;
+    ImageView ivCompassHeading;
+
     @SuppressLint("MissingPermission")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -138,7 +139,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         rssi_handler.sendEmptyMessage(ID_RSSI);
 
         tVobject = (TextView) findViewById(R.id.tVobject);
-        initTensorFlowAndLoadModel();
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -160,8 +160,16 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         btnAnalized.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                List<Classifier.Recognition> results = analyse(bitmapGlobal);
-                tVobject.setText(results.get(0).toString());
+                BitmapDrawable bitmapDrawable = (BitmapDrawable) monitor.getDrawable();
+                Bitmap bitmap = bitmapDrawable.getBitmap();
+
+                int dimension = Math.min(bitmap.getWidth(),bitmap.getHeight());
+                bitmap = ThumbnailUtils.extractThumbnail(bitmap,dimension,dimension);
+                monitor.setImageBitmap(bitmap);
+
+                bitmap = Bitmap.createScaledBitmap(bitmap,imageSize,imageSize,false);
+
+                classifyImage(bitmap);
             }
         });
 
@@ -245,6 +253,69 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             }
         });
 
+    }
+
+    public void classifyImage(Bitmap image) {
+        try {
+            ModelUnquant model = ModelUnquant.newInstance(getApplicationContext());
+            TensorBuffer inputFeature0 = TensorBuffer.createFixedSize(new int[]{1, 224, 224, 3}, DataType.FLOAT32);
+            ByteBuffer byteBuffer = ByteBuffer.allocateDirect(4*imageSize*imageSize*3);
+            byteBuffer.order(ByteOrder.nativeOrder());
+
+            int [] intValues = new int[imageSize*imageSize];
+            image.getPixels(intValues,0,image.getWidth(),0,0,image.getWidth(),image.getHeight());
+            int pixel = 0;
+            for(int i = 0; i < imageSize; i++){
+                for(int j = 0; j < imageSize; j++){
+                    int val = intValues[pixel++]; // RGB
+                    byteBuffer.putFloat(((val >> 16) & 0xFF)*(1.f/255.f));
+                    byteBuffer.putFloat(((val >> 8) & 0xFF)*(1.f/255.f));
+                    byteBuffer.putFloat((val & 0xFF)*(1.f/255.f));
+                }
+            }
+
+            inputFeature0.loadBuffer(byteBuffer);
+
+            ModelUnquant.Outputs outputs = model.process(inputFeature0);
+            TensorBuffer outputFeature0 = outputs.getOutputFeature0AsTensorBuffer();
+
+            float[] confidences = outputFeature0.getFloatArray();
+            int maxPos = 0;
+            float maxConfidence = 0;
+            for(int i = 0; i < confidences.length; i++){
+                if(confidences[i] > maxConfidence){
+                    maxConfidence = confidences[i];
+                    maxPos = i;
+                }
+            }
+
+            String[] classes = {"Cat", "Person", "Cup", "Laptop"};
+
+            tVobject.setText("Object Detected: "+ classes[maxPos]);
+
+            String s = "";
+            for(int i = 0; i < classes.length; i++){
+                s += String.format("%s: %.1f%%\n", classes[i], confidences[i] * 100);
+            }
+
+
+            model.close();
+        } catch (IOException e) {
+            Log.e(TAG,"Error: " + e.getMessage());
+        }
+    }
+
+    public int getMax(float[] arr) {
+        int index = 0;
+        float min = 0.0f;
+
+        for (int i = 0; i <= 1000; i++) {
+            if (arr[i] > min) {
+                index = i;
+                min = arr[i];
+            }
+        }
+        return index;
     }
 
     private class HttpHandler extends Handler
@@ -410,7 +481,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                                 @Override
                                 public void run()
                                 {
-                                    bitmapGlobal = bitmap;
                                     monitor.setImageBitmap(bitmap);
                                 }
                             });
@@ -464,34 +534,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         {
             e.printStackTrace();
         }
-    }
-
-    private void initTensorFlowAndLoadModel() {
-        executor.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    classifier = TensorFlowImageClassifier.create(
-                            getAssets(),
-                            MODEL_FILE,
-                            LABEL_FILE,
-                            INPUT_SIZE,
-                            IMAGE_MEAN,
-                            IMAGE_STD,
-                            INPUT_NAME,
-                            OUTPUT_NAME);
-                } catch (final Exception e) {
-                    throw new RuntimeException("Error initializing TensorFlow!", e);
-                }
-            }
-        });
-    }
-
-    public List<Classifier.Recognition> analyse(Bitmap bitmap)
-    {
-        bitmap = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, false);
-        final List<Classifier.Recognition> results = classifier.recognizeImage(bitmap);
-        return results;
     }
 
     @SuppressLint("MissingPermission")

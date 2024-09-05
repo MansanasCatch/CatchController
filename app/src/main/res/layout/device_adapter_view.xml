@@ -10,14 +10,10 @@
         android:id="@+id/tvDeviceName"
         android:textSize="15sp"
         android:textColor="@color/white"
-        android:textStyle="bold"/>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:id="@+id/tvDeviceUUID"
-        android:textSize="15sp"
-        android:textColor="@color/white"
+        android:background="#4B4C4F"
+        android:padding="5dp"
+        android:maxLines="1"
+        android:ellipsize="end"
         android:textStyle="bold"/>
 
     <TextView
@@ -26,7 +22,8 @@
         android:id="@+id/tvDeviceAddress"
         android:textSize="15sp"
         android:textColor="@color/white"
-        android:layout_marginBottom="10dp"/>
+        android:background="#4B4C4F"
+        android:padding="5dp"/>
 
 
 </LinearLayout>
