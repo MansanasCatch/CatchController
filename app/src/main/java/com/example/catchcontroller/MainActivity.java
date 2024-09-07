@@ -10,12 +10,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.graphics.Matrix;
 import android.graphics.drawable.BitmapDrawable;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.media.ThumbnailUtils;
 import android.os.Build;
 import android.os.Bundle;
@@ -29,6 +27,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ListView;
 import androidx.activity.EdgeToEdge;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -50,6 +49,8 @@ import android.graphics.BitmapFactory;
 import android.os.Environment;
 import android.os.Looper;
 import android.os.Message;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
@@ -61,11 +62,23 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import com.example.catchcontroller.ml.ModelUnquant;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
 import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
 import java.nio.ByteBuffer;
 
-public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener {
+public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener, OnMapReadyCallback, LocationListener, GoogleMap.OnMapClickListener {
     private static final String TAG = "myApp";
     BluetoothDevice arduinoBTModule = null;
     UUID arduinoUUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
@@ -102,7 +115,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     private boolean flash_on_off = false;
     private String ip_text = "192.168.0.105";
     public TextView tVobject;
-    Button btnScan,btnAnalized;
+    Button btnScan,btnAnalized, btnAddWaypoint;
     ImageButton btnForward, btnBackward, btnStop, btnLeft, btnRight;
 
     TextView tvCompassHeading, tvMapLatitude, tvMapLongitude;
@@ -112,6 +125,12 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     private Compass compass;
     private float currentAzimuth;
     float bearing = 0;
+
+    private GoogleMap myMap;
+    Location currentLocation;
+    FusedLocationProviderClient fusedLocationProviderClient;
+    Marker myMarker;
+    String CurrentMode;
 
     @SuppressLint("MissingPermission")
     @Override
@@ -164,6 +183,35 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         });
 
         EnableDisableBT();
+
+        tvMapLatitude = (TextView) findViewById(R.id.tvMapLatitude);
+        tvMapLongitude = (TextView) findViewById(R.id.tvMapLongitude);
+        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
+        getLastLocation();
+
+        RadioGroup modeGroup= findViewById(R.id.ModeGroup);
+        modeGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+                                                  @Override
+                                                  public void onCheckedChanged(RadioGroup group, int checkedId)
+                                                  {
+                                                      RadioButton radioButton = (RadioButton) findViewById(checkedId);
+                                                      CurrentMode = radioButton.getText().toString();
+                                                  }
+                                              }
+        );
+
+        btnAddWaypoint= findViewById(R.id.btnAddWaypoint);
+        btnAddWaypoint.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                FragmentDialogBox dialogFragment = new FragmentDialogBox();
+                Bundle bundle = new Bundle();
+                ArrayList<String> waypoints = ((MyApplication) getApplication()).getWaypoints();
+                bundle.putStringArrayList("waypoints",waypoints);
+                dialogFragment.setArguments(bundle);
+                dialogFragment.show(getSupportFragmentManager(),"FragmentDialogBox");
+            }
+        });
 
         btnScan = findViewById(R.id.btnScan);
         btnScan.setOnClickListener(new View.OnClickListener() {
@@ -272,6 +320,58 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
 
     }
 
+    private void getLastLocation(){
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+
+            return;
+        }
+        Task<Location> task = fusedLocationProviderClient.getLastLocation();
+        task.addOnSuccessListener(new OnSuccessListener<Location>() {
+            @Override
+            public void onSuccess(Location location) {
+                if(location != null){
+                    currentLocation = location;
+
+                    tvMapLatitude.setText("Latitude: " + currentLocation.getLatitude());
+                    tvMapLongitude.setText("Longitude: " + currentLocation.getLongitude());
+
+                    SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
+                    mapFragment.getMapAsync(MainActivity.this);
+                }
+            }
+        });
+        LocationManager locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, this);
+        LocationListener locationListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(Location location) {
+                LatLng current = new LatLng(location.getLatitude(), location.getLongitude());
+
+                tvMapLatitude.setText("Latitude: " + location.getLatitude());
+                tvMapLongitude.setText("Longitude: " + location.getLongitude());
+
+                myMarker.setPosition(current);
+                myMap.moveCamera(CameraUpdateFactory.newLatLngZoom(current, 35));
+            }
+        };
+    }
+
+    @Override
+    public void onMapReady(@NonNull GoogleMap googleMap) {
+        myMap = googleMap;
+        myMap.setOnMapClickListener(this);
+        LatLng current = new LatLng(currentLocation.getLatitude(), currentLocation.getLongitude());
+        myMarker = myMap.addMarker(new MarkerOptions().position(current).title("Current Location Marker").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
+        myMap.moveCamera(CameraUpdateFactory.newLatLngZoom(current, 35));
+    }
+
+    @Override
+    public void onMapClick(LatLng point) {
+        String latlng = point.latitude + "x" + point.longitude;
+        ((MyApplication) getApplication()).addWaypoint(latlng);
+        myMap.addMarker(new MarkerOptions().position(point).title("Waypoint"));
+    }
+
     public void classifyImage(Bitmap image) {
         try {
             ModelUnquant model = ModelUnquant.newInstance(getApplicationContext());
@@ -322,17 +422,26 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         }
     }
 
-    public int getMax(float[] arr) {
-        int index = 0;
-        float min = 0.0f;
+    @Override
+    public void onLocationChanged(@NonNull Location location) {
+        myMap.clear();
 
-        for (int i = 0; i <= 1000; i++) {
-            if (arr[i] > min) {
-                index = i;
-                min = arr[i];
-            }
+        LatLng current = new LatLng(location.getLatitude(), location.getLongitude());
+
+        tvMapLatitude.setText("Latitude: " + location.getLatitude());
+        tvMapLongitude.setText("Longitude: " + location.getLongitude());
+
+        myMarker.setPosition(current);
+        myMarker = myMap.addMarker(new MarkerOptions().position(current).title("Current Location Marker").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
+
+        //myMap.moveCamera(CameraUpdateFactory.newLatLngZoom(current, 35));
+        for(String loc : ((MyApplication) getApplication()).getWaypoints()) {
+            String[] locSeparated = loc.split("x");
+            Double lat = Double.parseDouble(locSeparated[0]);
+            Double lng = Double.parseDouble(locSeparated[1]);
+            LatLng currentLoc = new LatLng(lat, lng);
+            myMap.addMarker(new MarkerOptions().position(currentLoc).title("Waypoint").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
         }
-        return index;
     }
 
     private class HttpHandler extends Handler

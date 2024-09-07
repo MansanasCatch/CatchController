@@ -25,6 +25,7 @@
     <uses-feature android:name="android.hardware.sensor.compass" />
 
     <application
+        android:name=".MyApplication"
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -49,6 +50,9 @@
                 android:name="android.app.lib_name"
                 android:value="" />
         </activity>
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyBxko0ZcvbrtucxNd-UDtXRBzRBg0yBPlA" />
     </application>
 
 </manifest>

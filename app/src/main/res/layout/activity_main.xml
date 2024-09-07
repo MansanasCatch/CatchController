@@ -312,7 +312,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="#1E1F22"
-                android:padding="5dp"
+                android:paddingHorizontal="5dp"
                 android:text="Mode"
                 android:textColor="@color/white"
                 android:textSize="12sp" />
@@ -321,25 +321,32 @@
                 android:id="@+id/ModeGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:padding="10dp">
+                android:padding="5dp">
 
                 <RadioButton
                     android:id="@+id/manualRd"
                     android:layout_width="match_parent"
-                    android:layout_height="30dp"
+                    android:layout_height="25dp"
                     android:checked="true"
-                    android:text="Manual Mode"
+                    android:text="Manual"
                     android:textColor="@color/white"
-                    android:textSize="12sp" />
+                    android:textSize="10sp" />
 
                 <RadioButton
                     android:id="@+id/aiRd"
                     android:layout_width="match_parent"
-                    android:layout_height="30dp"
-                    android:text="AI Mode"
+                    android:layout_height="25dp"
+                    android:text="Automatic"
                     android:textColor="@color/white"
-                    android:textSize="12sp" />
+                    android:textSize="10sp" />
 
+                <RadioButton
+                    android:id="@+id/conversationRd"
+                    android:layout_width="match_parent"
+                    android:layout_height="25dp"
+                    android:text="Conversation"
+                    android:textColor="@color/white"
+                    android:textSize="10sp" />
 
             </RadioGroup>
         </LinearLayout>
@@ -362,7 +369,7 @@
         <LinearLayout
             android:id="@+id/linearLayout2"
             android:layout_width="match_parent"
-            android:layout_height="130dp"
+            android:layout_height="120dp"
             android:layout_marginTop="8dp"
             android:background="@color/white"
             android:orientation="vertical"
@@ -401,12 +408,11 @@
             tools:layout_editor_absoluteX="5dp">
 
 
-            <ImageView
-                android:id="@+id/ivMap"
+            <fragment
                 android:layout_width="match_parent"
-                android:layout_height="100dp"
-                app:srcCompat="@android:drawable/ic_menu_mapmode" />
-
+                android:layout_height="90dp"
+                android:id="@+id/map"
+                android:name="com.google.android.gms.maps.SupportMapFragment" />
 
         </LinearLayout>
 
@@ -426,7 +432,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="#1E1F22"
-                android:padding="5dp"
                 android:text="Latitude: 0"
                 android:textColor="@color/white"
                 android:maxLines="1"
@@ -438,12 +443,21 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="#1E1F22"
-                android:padding="5dp"
                 android:text="Longitude: 0"
                 android:textColor="@color/white"
                 android:maxLines="1"
                 android:ellipsize="end"
                 android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnAddWaypoint"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:backgroundTint="#FE225B6D"
+                android:text="View Waypoint"
+                android:textColor="@color/white"
+                android:textSize="10sp"
+                app:cornerRadius="0dp" />
 
         </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
