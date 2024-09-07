@@ -1,5 +1,6 @@
 package com.example.catchcontroller;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.DialogInterface;
@@ -30,6 +31,11 @@ public class FragmentDialogBox extends DialogFragment {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 ((MyApplication) getActivity().getApplication()).clearWaypoints();
+                Activity activity = getActivity();
+                if(activity instanceof MainActivity){
+                    MainActivity myactivity = (MainActivity) activity;
+                    myactivity.refreshMap();
+                }
             }
         });
         builder.setItems(waypointsArray, new DialogInterface.OnClickListener() {
@@ -37,8 +43,12 @@ public class FragmentDialogBox extends DialogFragment {
             public void onClick(DialogInterface dialog, int which) {
                 ListView lw = ((AlertDialog) dialog).getListView();
                 Object checkedItem = lw.getAdapter().getItem(which);
-                Log.e(TAG,"Selected:" + checkedItem.toString());
                 ((MyApplication) getActivity().getApplication()).removeWaypoint(checkedItem.toString());
+                Activity activity = getActivity();
+                if(activity instanceof MainActivity){
+                    MainActivity myactivity = (MainActivity) activity;
+                    myactivity.refreshMap();
+                }
             }
         });
 

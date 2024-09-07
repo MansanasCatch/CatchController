@@ -131,6 +131,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     FusedLocationProviderClient fusedLocationProviderClient;
     Marker myMarker;
     String CurrentMode;
+    LatLng currentLatLng;
 
     @SuppressLint("MissingPermission")
     @Override
@@ -191,14 +192,13 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
 
         RadioGroup modeGroup= findViewById(R.id.ModeGroup);
         modeGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
-                                                  @Override
-                                                  public void onCheckedChanged(RadioGroup group, int checkedId)
-                                                  {
-                                                      RadioButton radioButton = (RadioButton) findViewById(checkedId);
-                                                      CurrentMode = radioButton.getText().toString();
-                                                  }
-                                              }
-        );
+            @Override
+            public void onCheckedChanged(RadioGroup group, int checkedId)
+            {
+                RadioButton radioButton = (RadioButton) findViewById(checkedId);
+                CurrentMode = radioButton.getText().toString();
+            }
+        });
 
         btnAddWaypoint= findViewById(R.id.btnAddWaypoint);
         btnAddWaypoint.setOnClickListener(new View.OnClickListener() {
@@ -361,6 +361,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         myMap = googleMap;
         myMap.setOnMapClickListener(this);
         LatLng current = new LatLng(currentLocation.getLatitude(), currentLocation.getLongitude());
+        currentLatLng = current;
         myMarker = myMap.addMarker(new MarkerOptions().position(current).title("Current Location Marker").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
         myMap.moveCamera(CameraUpdateFactory.newLatLngZoom(current, 35));
     }
@@ -424,17 +425,17 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
 
     @Override
     public void onLocationChanged(@NonNull Location location) {
-        myMap.clear();
-
-        LatLng current = new LatLng(location.getLatitude(), location.getLongitude());
-
+        currentLatLng = new LatLng(location.getLatitude(), location.getLongitude());
         tvMapLatitude.setText("Latitude: " + location.getLatitude());
         tvMapLongitude.setText("Longitude: " + location.getLongitude());
-
-        myMarker.setPosition(current);
-        myMarker = myMap.addMarker(new MarkerOptions().position(current).title("Current Location Marker").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
-
         //myMap.moveCamera(CameraUpdateFactory.newLatLngZoom(current, 35));
+        refreshMap();
+    }
+
+    public void refreshMap(){
+        myMap.clear();
+        myMarker = myMap.addMarker(new MarkerOptions().position(currentLatLng).title("Current Location Marker").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
+
         for(String loc : ((MyApplication) getApplication()).getWaypoints()) {
             String[] locSeparated = loc.split("x");
             Double lat = Double.parseDouble(locSeparated[0]);
