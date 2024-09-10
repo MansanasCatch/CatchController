@@ -208,7 +208,7 @@
             android:orientation="vertical">
 
             <EditText
-                android:id="@+id/editTextText"
+                android:id="@+id/txtTextToSpeech"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ems="10"
@@ -220,6 +220,7 @@
                 android:text="Enter Text to Speech" />
 
             <Button
+                android:id="@+id/btnSpeak"
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:backgroundTint="#FE225B6D"
@@ -229,6 +230,7 @@
                 app:cornerRadius="0dp" />
 
             <Button
+                android:id="@+id/btnListen"
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:backgroundTint="#FE225B6D"

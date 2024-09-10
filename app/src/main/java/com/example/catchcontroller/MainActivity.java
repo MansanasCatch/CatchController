@@ -17,12 +17,18 @@ import android.location.LocationManager;
 import android.media.ThumbnailUtils;
 import android.os.Build;
 import android.os.Bundle;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.Voice;
 import android.util.Log;
 import android.view.View;
 import android.view.animation.Animation;
 import android.view.animation.RotateAnimation;
 import android.widget.AdapterView;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ListView;
@@ -40,6 +46,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import android.os.Handler;
@@ -52,6 +59,8 @@ import android.os.Message;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
+import android.widget.Toast;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.File;
@@ -104,6 +113,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             Manifest.permission.ACCESS_NETWORK_STATE,
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
             Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.RECORD_AUDIO,
             Manifest.permission.BLUETOOTH};
     int imageSize = 224;
     private HandlerThread stream_thread,flash_thread,rssi_thread;
@@ -115,10 +125,11 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     private boolean flash_on_off = false;
     private String ip_text = "192.168.0.105";
     public TextView tVobject;
-    Button btnScan,btnAnalized, btnAddWaypoint;
+    Button btnScan,btnAnalized, btnAddWaypoint,btnSpeak,btnListen;
     ImageButton btnForward, btnBackward, btnStop, btnLeft, btnRight;
 
     TextView tvCompassHeading, tvMapLatitude, tvMapLongitude;
+    EditText txtTextToSpeech;
     ImageView ivCompassHeading;
 
     private boolean compassFound = false;
@@ -130,8 +141,18 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     Location currentLocation;
     FusedLocationProviderClient fusedLocationProviderClient;
     Marker myMarker;
-    String CurrentMode;
+    String CurrentMode = "Manual";
     LatLng currentLatLng;
+
+    Handler handler = new Handler();
+    Runnable runnable;
+    int delaySend = 1000;
+    float currentHeading;
+    boolean isDeviceConnected = false;
+
+    TextToSpeech tts;
+    public static final Integer RecordAudioRequestCode = 1;
+    private SpeechRecognizer speechRecognizer;
 
     @SuppressLint("MissingPermission")
     @Override
@@ -200,6 +221,163 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             }
         });
 
+        tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                tts.setLanguage(Locale.US);
+                tts.setSpeechRate(1.0f);
+                tts.setPitch(1.0f);
+                Set<Voice> voices = tts.getVoices();
+                List<Voice> voiceList = new ArrayList<>(voices);
+                Voice selectedVoice = voiceList.get(5);
+                tts.setVoice(selectedVoice);
+            }
+        });
+
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        txtTextToSpeech = (EditText) findViewById(R.id.txtTextToSpeech);
+        btnSpeak= findViewById(R.id.btnSpeak);
+        btnSpeak.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                String text = txtTextToSpeech.getText().toString();
+                triggerSpeak(text);
+            }
+        });
+
+        final Intent speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+        speechRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override
+            public void onReadyForSpeech(Bundle bundle) {
+                txtTextToSpeech.setText("Ready");
+            }
+
+            @Override
+            public void onBeginningOfSpeech() {
+                txtTextToSpeech.setText("");
+                txtTextToSpeech.setHint("Listening...");
+            }
+
+            @Override
+            public void onRmsChanged(float v) {
+
+            }
+
+            @Override
+            public void onBufferReceived(byte[] bytes) {
+
+            }
+
+            @Override
+            public void onEndOfSpeech() {
+                txtTextToSpeech.setText("");
+            }
+
+            @Override
+            public void onError(int i) {
+                txtTextToSpeech.setText("");
+            }
+
+            @Override
+            public void onResults(Bundle bundle) {
+                ArrayList<String> data = bundle.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                String dataText = data.get(0);
+                txtTextToSpeech.setText(dataText);
+                if(CurrentMode == "Manual"){
+                    if(dataText.contains("turn left")){
+                        triggerSpeak("turning left");
+                        try
+                        {
+                            if(isDeviceConnected){
+                                String command = "A";
+                                btSocket.getOutputStream().write(command.getBytes());
+                            }
+                        }
+                        catch (IOException e)
+                        {
+                            Log.d(TAG, "ERROR SOCCKET");
+                        }
+                    }
+                    if(dataText.contains("turn right")){
+                        triggerSpeak("turning right");
+                        try
+                        {
+                            if(isDeviceConnected){
+                                String command = "D";
+                                btSocket.getOutputStream().write(command.getBytes());
+                            }
+                        }
+                        catch (IOException e)
+                        {
+                            Log.d(TAG, "ERROR SOCCKET");
+                        }
+                    }
+                    if(dataText.contains("go forward")){
+                        triggerSpeak("going forward");
+                        try
+                        {
+                            if(isDeviceConnected){
+                                String command = "W";
+                                btSocket.getOutputStream().write(command.getBytes());
+                            }
+                        }
+                        catch (IOException e)
+                        {
+                            Log.d(TAG, "ERROR SOCCKET");
+                        }
+                    }
+                    if(dataText.contains("go backward")){
+                        triggerSpeak("going backward");
+                        try
+                        {
+                            if(isDeviceConnected){
+                                String command = "S";
+                                btSocket.getOutputStream().write(command.getBytes());
+                            }
+                        }
+                        catch (IOException e)
+                        {
+                            Log.d(TAG, "ERROR SOCCKET");
+                        }
+                    }
+                    if(dataText.contains("stop")){
+                        triggerSpeak("stoping");
+                        try
+                        {
+                            if(isDeviceConnected){
+                                String command = "X";
+                                btSocket.getOutputStream().write(command.getBytes());
+                            }
+                        }
+                        catch (IOException e)
+                        {
+                            Log.d(TAG, "ERROR SOCCKET");
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void onPartialResults(Bundle bundle) {
+
+            }
+
+            @Override
+            public void onEvent(int i, Bundle bundle) {
+
+            }
+        });
+
+        btnListen= findViewById(R.id.btnListen);
+        btnListen.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                speechRecognizer.startListening(speechRecognizerIntent);
+            }
+        });
+
         btnAddWaypoint= findViewById(R.id.btnAddWaypoint);
         btnAddWaypoint.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -244,8 +422,10 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             public void onClick(View view) {
                 try
                 {
-                    String command = "W";
-                    btSocket.getOutputStream().write(command.getBytes());
+                    if(isDeviceConnected){
+                        String command = "W";
+                        btSocket.getOutputStream().write(command.getBytes());
+                    }
                 }
                 catch (IOException e)
                 {
@@ -260,8 +440,10 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             public void onClick(View view) {
                 try
                 {
-                    String command = "S";
-                    btSocket.getOutputStream().write(command.getBytes());
+                    if(isDeviceConnected){
+                        String command = "S";
+                        btSocket.getOutputStream().write(command.getBytes());
+                    }
                 }
                 catch (IOException e)
                 {
@@ -276,8 +458,10 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             public void onClick(View view) {
                 try
                 {
-                    String command = "X";
-                    btSocket.getOutputStream().write(command.getBytes());
+                    if(isDeviceConnected){
+                        String command = "X";
+                        btSocket.getOutputStream().write(command.getBytes());
+                    }
                 }
                 catch (IOException e)
                 {
@@ -292,8 +476,10 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             public void onClick(View view) {
                 try
                 {
-                    String command = "A";
-                    btSocket.getOutputStream().write(command.getBytes());
+                    if(isDeviceConnected){
+                        String command = "A";
+                        btSocket.getOutputStream().write(command.getBytes());
+                    }
                 }
                 catch (IOException e)
                 {
@@ -308,8 +494,10 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             public void onClick(View view) {
                 try
                 {
-                    String command = "D";
-                    btSocket.getOutputStream().write(command.getBytes());
+                    if(isDeviceConnected){
+                        String command = "D";
+                        btSocket.getOutputStream().write(command.getBytes());
+                    }
                 }
                 catch (IOException e)
                 {
@@ -317,7 +505,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                 }
             }
         });
-
     }
 
     private void getLastLocation(){
@@ -364,6 +551,10 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         currentLatLng = current;
         myMarker = myMap.addMarker(new MarkerOptions().position(current).title("Current Location Marker").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN)));
         myMap.moveCamera(CameraUpdateFactory.newLatLngZoom(current, 35));
+    }
+
+    public void triggerSpeak(String text) {
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
     }
 
     @Override
@@ -672,11 +863,13 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                 btSocket = dispositivo.createInsecureRfcommSocketToServiceRecord(arduinoUUID);
                 bluetoothAdapter.cancelDiscovery();
                 btSocket.connect();
+                isDeviceConnected = true;
             } catch (IOException e) {
                 try {
                     btSocket =(BluetoothSocket) mBTDevice.getClass().getMethod("createRfcommSocket", new Class[] {int.class}).invoke(mBTDevice,1);
                     btSocket.connect();
                     Log.e(TAG,"Connected");
+                    isDeviceConnected = true;
                 } catch (NoSuchMethodException | IOException | InvocationTargetException |
                          IllegalAccessException ex) {
                 }
@@ -690,6 +883,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         unregisterReceiver(BRScan);
         unregisterReceiver(mBroadcastReceiver2);
         unregisterReceiver(mBroadcastReceiver4);
+        speechRecognizer.destroy();
         compass = null;
     }
 
@@ -704,10 +898,30 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     protected void onPause() {
         super.onPause();
         compass.stop();
+        handler.removeCallbacks(runnable);
     }
 
     @Override
     protected void onResume() {
+        handler.postDelayed(runnable = new Runnable() {
+            public void run() {
+                handler.postDelayed(runnable, delaySend);
+                if(isDeviceConnected){
+                    if(CurrentMode.equals("Automatic")){
+                        ArrayList<String> waypoints = ((MyApplication) getApplication()).getWaypoints();
+                        if(waypoints.size() > 0){
+                            try {
+                                String waypoint = waypoints.get(0);
+                                String command = currentHeading + "x"+ currentLatLng.latitude + "x" + currentLatLng.longitude + "x" + waypoint;
+                                btSocket.getOutputStream().write(command.getBytes());
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    }
+                }
+            }
+        }, delaySend);
         super.onResume();
         compass.start();
     }
@@ -717,6 +931,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         super.onStop();
         Log.d(TAG, "stop compass");
         compass.stop();
+        handler.removeCallbacks(runnable);
     }
 
     private void setupCompass() {
@@ -765,6 +980,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             ivCompassHeading.startAnimation(an);
             //tvOutput.setText(String.valueOf(azimuth));
             //String.valueOf(heading) + " " +
+            currentHeading = heading;
             tvCompassHeading.setText(showDirection(heading));
         } else {
             tvCompassHeading.setText("Sorry, no data from compass sensor.");
