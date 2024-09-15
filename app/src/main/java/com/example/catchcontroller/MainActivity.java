@@ -2,6 +2,7 @@ package com.example.catchcontroller;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
@@ -17,6 +18,7 @@ import android.location.LocationManager;
 import android.media.ThumbnailUtils;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -33,7 +35,12 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ListView;
 import androidx.activity.EdgeToEdge;
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -47,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import android.os.Handler;
@@ -151,8 +159,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     boolean isDeviceConnected = false;
 
     TextToSpeech tts;
-    public static final Integer RecordAudioRequestCode = 1;
-    private SpeechRecognizer speechRecognizer;
+    private static final int REQUEST_CODE_SPEECH_INPUT = 1;
 
     @SuppressLint("MissingPermission")
     @Override
@@ -234,7 +241,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             }
         });
 
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         txtTextToSpeech = (EditText) findViewById(R.id.txtTextToSpeech);
         btnSpeak= findViewById(R.id.btnSpeak);
         btnSpeak.setOnClickListener(new View.OnClickListener() {
@@ -245,136 +251,27 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             }
         });
 
-        final Intent speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
-        speechRecognizer.setRecognitionListener(new RecognitionListener() {
-            @Override
-            public void onReadyForSpeech(Bundle bundle) {
-                txtTextToSpeech.setText("Ready");
-            }
-
-            @Override
-            public void onBeginningOfSpeech() {
-                txtTextToSpeech.setText("");
-                txtTextToSpeech.setHint("Listening...");
-            }
-
-            @Override
-            public void onRmsChanged(float v) {
-
-            }
-
-            @Override
-            public void onBufferReceived(byte[] bytes) {
-
-            }
-
-            @Override
-            public void onEndOfSpeech() {
-                txtTextToSpeech.setText("");
-            }
-
-            @Override
-            public void onError(int i) {
-                txtTextToSpeech.setText("");
-            }
-
-            @Override
-            public void onResults(Bundle bundle) {
-                ArrayList<String> data = bundle.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                String dataText = data.get(0);
-                txtTextToSpeech.setText(dataText);
-                if(CurrentMode == "Manual"){
-                    if(dataText.contains("turn left")){
-                        triggerSpeak("turning left");
-                        try
-                        {
-                            if(isDeviceConnected){
-                                String command = "A";
-                                btSocket.getOutputStream().write(command.getBytes());
-                            }
-                        }
-                        catch (IOException e)
-                        {
-                            Log.d(TAG, "ERROR SOCCKET");
-                        }
-                    }
-                    if(dataText.contains("turn right")){
-                        triggerSpeak("turning right");
-                        try
-                        {
-                            if(isDeviceConnected){
-                                String command = "D";
-                                btSocket.getOutputStream().write(command.getBytes());
-                            }
-                        }
-                        catch (IOException e)
-                        {
-                            Log.d(TAG, "ERROR SOCCKET");
-                        }
-                    }
-                    if(dataText.contains("go forward")){
-                        triggerSpeak("going forward");
-                        try
-                        {
-                            if(isDeviceConnected){
-                                String command = "W";
-                                btSocket.getOutputStream().write(command.getBytes());
-                            }
-                        }
-                        catch (IOException e)
-                        {
-                            Log.d(TAG, "ERROR SOCCKET");
-                        }
-                    }
-                    if(dataText.contains("go backward")){
-                        triggerSpeak("going backward");
-                        try
-                        {
-                            if(isDeviceConnected){
-                                String command = "S";
-                                btSocket.getOutputStream().write(command.getBytes());
-                            }
-                        }
-                        catch (IOException e)
-                        {
-                            Log.d(TAG, "ERROR SOCCKET");
-                        }
-                    }
-                    if(dataText.contains("stop")){
-                        triggerSpeak("stoping");
-                        try
-                        {
-                            if(isDeviceConnected){
-                                String command = "X";
-                                btSocket.getOutputStream().write(command.getBytes());
-                            }
-                        }
-                        catch (IOException e)
-                        {
-                            Log.d(TAG, "ERROR SOCCKET");
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public void onPartialResults(Bundle bundle) {
-
-            }
-
-            @Override
-            public void onEvent(int i, Bundle bundle) {
-
-            }
-        });
-
         btnListen= findViewById(R.id.btnListen);
         btnListen.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                speechRecognizer.startListening(speechRecognizerIntent);
+                Intent intent
+                        = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,
+                        Locale.getDefault());
+                intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to text");
+
+                try {
+                    startActivityForResult(intent, REQUEST_CODE_SPEECH_INPUT);
+                }
+                catch (Exception e) {
+                    Toast
+                            .makeText(MainActivity.this, " " + e.getMessage(),
+                                    Toast.LENGTH_SHORT)
+                            .show();
+                }
             }
         });
 
@@ -420,17 +317,8 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         btnForward.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                try
-                {
-                    if(isDeviceConnected){
-                        String command = "W";
-                        btSocket.getOutputStream().write(command.getBytes());
-                    }
-                }
-                catch (IOException e)
-                {
-                    Log.d(TAG, "ERROR SOCCKET");
-                }
+                String command = "W";
+                triggerCommand(command);
             }
         });
 
@@ -438,17 +326,8 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         btnBackward.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                try
-                {
-                    if(isDeviceConnected){
-                        String command = "S";
-                        btSocket.getOutputStream().write(command.getBytes());
-                    }
-                }
-                catch (IOException e)
-                {
-                    Log.d(TAG, "ERROR SOCCKET");
-                }
+                String command = "S";
+                triggerCommand(command);
             }
         });
 
@@ -456,17 +335,8 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         btnStop.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                try
-                {
-                    if(isDeviceConnected){
-                        String command = "X";
-                        btSocket.getOutputStream().write(command.getBytes());
-                    }
-                }
-                catch (IOException e)
-                {
-                    Log.d(TAG, "ERROR SOCCKET");
-                }
+                String command = "X";
+                triggerCommand(command);
             }
         });
 
@@ -474,17 +344,8 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         btnLeft.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                try
-                {
-                    if(isDeviceConnected){
-                        String command = "A";
-                        btSocket.getOutputStream().write(command.getBytes());
-                    }
-                }
-                catch (IOException e)
-                {
-                    Log.d(TAG, "ERROR SOCCKET");
-                }
+                String command = "A";
+                triggerCommand(command);
             }
         });
 
@@ -492,19 +353,47 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         btnRight.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                try
-                {
-                    if(isDeviceConnected){
-                        String command = "D";
-                        btSocket.getOutputStream().write(command.getBytes());
-                    }
-                }
-                catch (IOException e)
-                {
-                    Log.d(TAG, "ERROR SOCCKET");
-                }
+                String command = "D";
+                triggerCommand(command);
             }
         });
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode,
+                                    @Nullable Intent data)
+    {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CODE_SPEECH_INPUT) {
+            if (resultCode == RESULT_OK && data != null) {
+                ArrayList<String> result = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+                String dataText =Objects.requireNonNull(result).get(0);
+                txtTextToSpeech.setText(dataText);
+                if(CurrentMode == "Manual"){
+                    if(dataText.contains("turn left")){
+                        triggerSpeak("turning left");
+                        String command = "A";
+                        triggerCommand(command);
+                    }else if(dataText.contains("turn right")){
+                        triggerSpeak("turning right");
+                        String command = "D";
+                        triggerCommand(command);
+                    }else if(dataText.contains("go forward")){
+                        triggerSpeak("going forward");
+                        String command = "W";
+                        triggerCommand(command);
+                    }else if(dataText.contains("go backward")){
+                        triggerSpeak("going backward");
+                        String command = "S";
+                        triggerCommand(command);
+                    }else if(dataText.contains("stop")){
+                        triggerSpeak("stoping");
+                        String command = "X";
+                        triggerCommand(command);
+                    }
+                }
+            }
+        }
     }
 
     private void getLastLocation(){
@@ -555,6 +444,25 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
 
     public void triggerSpeak(String text) {
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+    }
+
+    public void triggerCommand(String command) {
+        Thread thread = new Thread() {
+            @Override
+            public void run() {
+                try
+                {
+                    if(isDeviceConnected){
+                        btSocket.getOutputStream().write(command.getBytes());
+                    }
+                }
+                catch (IOException e)
+                {
+                    Log.d(TAG, "ERROR SOCCKET");
+                }
+            }
+        };
+        thread.start();
     }
 
     @Override
@@ -883,7 +791,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         unregisterReceiver(BRScan);
         unregisterReceiver(mBroadcastReceiver2);
         unregisterReceiver(mBroadcastReceiver4);
-        speechRecognizer.destroy();
         compass = null;
     }
 
