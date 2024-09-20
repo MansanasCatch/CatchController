@@ -199,6 +199,7 @@
 
         </LinearLayout>
 
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -239,6 +240,25 @@
                 android:textSize="12sp"
                 app:cornerRadius="0dp" />
         </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#1E1F22"
+            android:orientation="vertical"
+            android:padding="5dp"
+            android:layout_marginTop="5dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvCommands"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+        </LinearLayout>
+
     </LinearLayout>
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -254,50 +274,20 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0">
 
-        <TextView
-            android:id="@+id/tVobject"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="#1E1F22"
-            android:padding="2dp"
-            android:text="Object Analyzing..."
-            android:textAlignment="center"
-            android:textColor="@color/white"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintHorizontal_bias="0.0"
-            app:layout_constraintStart_toStartOf="parent"
-            android:maxLines="1"
-            android:ellipsize="end"
-            app:layout_constraintTop_toBottomOf="@+id/btnAnalized" />
 
-        <ImageView
-            android:id="@+id/monitor"
+        <FrameLayout
+            android:id="@+id/container"
             android:layout_width="match_parent"
-            android:layout_height="220px"
-            android:layout_marginTop="4dp"
-            android:background="#FE225B6D"
-            android:padding="5dp"
-            android:src="@drawable/ic_launcher_foreground"
+            android:layout_height="200dp"
+            android:background="@android:color/black"
             app:layout_constraintBottom_toTopOf="@+id/linearLayout4"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintHorizontal_bias="0.0"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/tVobject" />
+            app:layout_constraintTop_toTopOf="parent"
+            tools:context="org.tensorflow.lite.examples.classification.CameraActivity">
 
-        <Button
-            android:id="@+id/btnAnalized"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:backgroundTint="#1E1F22"
-            android:text="Analized Object"
-            android:textColor="@color/white"
-            android:textSize="12sp"
-            app:cornerRadius="0dp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintHorizontal_bias="0.0"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+        </FrameLayout>
 
         <LinearLayout
             android:id="@+id/linearLayout4"

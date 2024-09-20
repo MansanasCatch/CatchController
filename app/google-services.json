@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "573136011279",
+    "firebase_url": "https://catchrobotcontroller-3226e-default-rtdb.firebaseio.com",
+    "project_id": "catchrobotcontroller-3226e",
+    "storage_bucket": "catchrobotcontroller-3226e.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:573136011279:android:31e76a5eaea844c169a37a",
+        "android_client_info": {
+          "package_name": "com.example.catchcontroller"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDJtO3GQic_szAtGHRYa19_P2khFcEkyAg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:573136011279:android:dcacf513da6e2f5569a37a",
+        "android_client_info": {
+          "package_name": "com.example.catchtransmittercontroller"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDJtO3GQic_szAtGHRYa19_P2khFcEkyAg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

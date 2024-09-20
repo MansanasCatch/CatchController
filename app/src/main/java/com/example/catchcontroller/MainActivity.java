@@ -2,7 +2,6 @@ package com.example.catchcontroller;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
@@ -11,17 +10,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.graphics.drawable.BitmapDrawable;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
-import android.media.ThumbnailUtils;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.CountDownTimer;
-import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
-import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
 import android.util.Log;
@@ -35,10 +29,6 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ListView;
 import androidx.activity.EdgeToEdge;
-import androidx.activity.result.ActivityResult;
-import androidx.activity.result.ActivityResultCallback;
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -47,6 +37,8 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteOrder;
@@ -58,27 +50,13 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import android.os.Handler;
-import android.os.HandlerThread;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.os.Environment;
-import android.os.Looper;
-import android.os.Message;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
-
-import java.io.BufferedInputStream;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.URL;
 import com.example.catchcontroller.ml.ModelUnquant;
+import com.firebase.ui.database.FirebaseRecyclerOptions;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
@@ -91,11 +69,51 @@ import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
-import org.tensorflow.lite.DataType;
-import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
 import java.nio.ByteBuffer;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
 
-public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener, OnMapReadyCallback, LocationListener, GoogleMap.OnMapClickListener {
+import android.Manifest;
+import android.app.Fragment;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Matrix;
+import android.graphics.RectF;
+import android.graphics.Typeface;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraManager;
+import android.media.Image;
+import android.media.ImageReader;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.util.Size;
+import android.util.TypedValue;
+import android.view.Surface;
+import android.widget.Toast;
+
+import com.example.catchcontroller.Drawing.BorderedText;
+import com.example.catchcontroller.Drawing.MultiBoxTracker;
+import com.example.catchcontroller.Drawing.OverlayView;
+import com.example.catchcontroller.livefeed.CameraConnectionFragment;
+import com.example.catchcontroller.livefeed.ImageUtils;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+
+public class MainActivity extends AppCompatActivity implements
+        AdapterView.OnItemClickListener,
+        OnMapReadyCallback,
+        LocationListener,
+        GoogleMap.OnMapClickListener,
+        ImageReader.OnImageAvailableListener{
     private static final String TAG = "myApp";
     BluetoothDevice arduinoBTModule = null;
     UUID arduinoUUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
@@ -122,18 +140,12 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
             Manifest.permission.READ_EXTERNAL_STORAGE,
             Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.BLUETOOTH};
+            Manifest.permission.BLUETOOTH,
+            Manifest.permission.CAMERA};
+
     int imageSize = 224;
-    private HandlerThread stream_thread,flash_thread,rssi_thread;
-    private Handler stream_handler,flash_handler,rssi_handler;
-    private ImageView monitor;
-    private final int ID_CONNECT = 200;
-    private final int ID_FLASH = 201;
-    private final int ID_RSSI = 202;
-    private boolean flash_on_off = false;
-    private String ip_text = "192.168.0.105";
-    public TextView tVobject;
-    Button btnScan,btnAnalized, btnAddWaypoint,btnSpeak,btnListen;
+
+    Button btnScan,btnAddWaypoint,btnSpeak,btnListen;
     ImageButton btnForward, btnBackward, btnStop, btnLeft, btnRight;
 
     TextView tvCompassHeading, tvMapLatitude, tvMapLongitude;
@@ -161,17 +173,60 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     TextToSpeech tts;
     private static final int REQUEST_CODE_SPEECH_INPUT = 1;
 
+    RecyclerView rvCommands;
+    CommandAdapter commandAdapter;
+
+    private Matrix frameToCropTransform;
+    private int sensorOrientation;
+    private Matrix cropToFrameTransform;
+    private static final int TF_OD_API_INPUT_SIZE = 320;
+    private static final float MINIMUM_CONFIDENCE_TF_OD_API = 0.5f;
+    private static final boolean MAINTAIN_ASPECT = false;
+    private static final float TEXT_SIZE_DIP = 10;
+    private static final int PERMISSION_CODE = 321;
+    OverlayView trackingOverlay;
+    private BorderedText borderedText;
+    private Detector detector;
+    Handler handler2;
+
     @SuppressLint("MissingPermission")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
+        handler2 = new Handler();
 
         checkPermission();
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, REQUEST_CODE_ASK_PERMISSIONS);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M){
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED){
+                String[] permission = {Manifest.permission.CAMERA};
+                requestPermissions(permission, PERMISSION_CODE);
+            }
+            else {
+                setFragment();
+            }
+        }
+
+        //TODO intialize the tracker to draw rectangles
+        tracker = new MultiBoxTracker(this);
+        try {
+            detector =
+                    TFLiteObjectDetectionAPIModel.create(
+                            this,
+                            "efficientdet_lite0.tflite",
+                            "labelmap.txt",
+                            TF_OD_API_INPUT_SIZE,
+                            true);
+            Log.d(TAG,"success");
+            Toast.makeText(this, "Model loaded Successfully", Toast.LENGTH_SHORT).show();
+        } catch (final IOException e) {
+            Log.d(TAG,"error in town"+e.getMessage());
         }
 
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
@@ -181,24 +236,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         mBTDevices = new ArrayList<>();
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         lvNewDevices.setOnItemClickListener(MainActivity.this);
-        monitor = findViewById(R.id.monitor);
-
-        stream_thread = new HandlerThread("http");
-        stream_thread.start();
-        stream_handler = new HttpHandler(stream_thread.getLooper());
-
-        flash_thread = new HandlerThread("http");
-        flash_thread.start();
-        flash_handler = new HttpHandler(flash_thread.getLooper());
-
-        rssi_thread = new HandlerThread("http");
-        rssi_thread.start();
-        rssi_handler = new HttpHandler(rssi_thread.getLooper());
-
-        stream_handler.sendEmptyMessage(ID_CONNECT);
-        rssi_handler.sendEmptyMessage(ID_RSSI);
-
-        tVobject = (TextView) findViewById(R.id.tVobject);
 
         tvCompassHeading = (TextView) findViewById(R.id.tvCompassHeading);
         ivCompassHeading = (ImageView) findViewById(R.id.ivCompassHeading);
@@ -217,6 +254,17 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         tvMapLongitude = (TextView) findViewById(R.id.tvMapLongitude);
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
         getLastLocation();
+
+        rvCommands = (RecyclerView) findViewById(R.id.rvCommands);
+        rvCommands.setLayoutManager(new LinearLayoutManager(this));
+
+        FirebaseRecyclerOptions<ModelCommand> options =
+                new FirebaseRecyclerOptions.Builder<ModelCommand>()
+                        .setQuery(FirebaseDatabase.getInstance().getReference().child("commands"), ModelCommand.class)
+                        .build();
+
+        commandAdapter = new CommandAdapter(options);
+        rvCommands.setAdapter(commandAdapter);
 
         RadioGroup modeGroup= findViewById(R.id.ModeGroup);
         modeGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
@@ -296,22 +344,22 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             }
         });
 
-        btnAnalized = findViewById(R.id.btnAnalized);
-        btnAnalized.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                BitmapDrawable bitmapDrawable = (BitmapDrawable) monitor.getDrawable();
-                Bitmap bitmap = bitmapDrawable.getBitmap();
-
-                int dimension = Math.min(bitmap.getWidth(),bitmap.getHeight());
-                bitmap = ThumbnailUtils.extractThumbnail(bitmap,dimension,dimension);
-                monitor.setImageBitmap(bitmap);
-
-                bitmap = Bitmap.createScaledBitmap(bitmap,imageSize,imageSize,false);
-
-                classifyImage(bitmap);
-            }
-        });
+//        btnAnalized = findViewById(R.id.btnAnalized);
+//        btnAnalized.setOnClickListener(new View.OnClickListener() {
+//            @Override
+//            public void onClick(View view) {
+////                BitmapDrawable bitmapDrawable = (BitmapDrawable) monitor.getDrawable();
+////                Bitmap bitmap = bitmapDrawable.getBitmap();
+////
+////                int dimension = Math.min(bitmap.getWidth(),bitmap.getHeight());
+////                bitmap = ThumbnailUtils.extractThumbnail(bitmap,dimension,dimension);
+////                monitor.setImageBitmap(bitmap);
+////
+////                bitmap = Bitmap.createScaledBitmap(bitmap,imageSize,imageSize,false);
+////
+////                classifyImage(bitmap);
+//            }
+//        });
 
         btnForward = findViewById(R.id.btnForward);
         btnForward.setOnClickListener(new View.OnClickListener() {
@@ -357,6 +405,222 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                 triggerCommand(command);
             }
         });
+    }
+
+    //TODO fragment which show llive footage from camera
+    int previewHeight = 0,previewWidth = 0;
+    protected void setFragment() {
+        final CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        String cameraId = null;
+        try {
+            cameraId = manager.getCameraIdList()[1];
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+
+
+        Fragment fragment;
+
+        CameraConnectionFragment camera2Fragment =
+                CameraConnectionFragment.newInstance(
+                        new CameraConnectionFragment.ConnectionCallback() {
+                            @Override
+                            public void onPreviewSizeChosen(final Size size, final int rotation) {
+                                previewHeight = size.getHeight();
+                                previewWidth = size.getWidth();
+
+                                final float textSizePx =
+                                        TypedValue.applyDimension(
+                                                TypedValue.COMPLEX_UNIT_DIP, TEXT_SIZE_DIP, getResources().getDisplayMetrics());
+                                borderedText = new BorderedText(textSizePx);
+                                borderedText.setTypeface(Typeface.MONOSPACE);
+
+                                tracker = new MultiBoxTracker(MainActivity.this);
+
+                                int cropSize = TF_OD_API_INPUT_SIZE;
+
+                                previewWidth = size.getWidth();
+                                previewHeight = size.getHeight();
+
+                                sensorOrientation = rotation - getScreenOrientation();
+
+                                rgbFrameBitmap = Bitmap.createBitmap(previewWidth, previewHeight, Bitmap.Config.ARGB_8888);
+                                croppedBitmap = Bitmap.createBitmap(cropSize, cropSize, Bitmap.Config.ARGB_8888);
+
+                                frameToCropTransform =
+                                        ImageUtils.getTransformationMatrix(
+                                                previewWidth, previewHeight,
+                                                cropSize, cropSize,
+                                                sensorOrientation, MAINTAIN_ASPECT);
+
+                                cropToFrameTransform = new Matrix();
+                                frameToCropTransform.invert(cropToFrameTransform);
+
+                                trackingOverlay = (OverlayView) findViewById(R.id.tracking_overlay);
+                                trackingOverlay.addCallback(
+                                        new OverlayView.DrawCallback() {
+                                            @Override
+                                            public void drawCallback(final Canvas canvas) {
+                                                tracker.draw(canvas);
+                                                Log.d(TAG,"inside draw");
+                                            }
+                                        });
+
+                                tracker.setFrameConfiguration(previewWidth, previewHeight, sensorOrientation);
+                            }
+                        },
+                        this,
+                        R.layout.camera_fragment,
+                        new Size(640, 900));
+
+        camera2Fragment.setCamera(cameraId);
+        fragment = camera2Fragment;
+        getFragmentManager().beginTransaction().replace(R.id.container, fragment).commit();
+    }
+
+
+    //TODO getting frames of live camera footage and passing them to model
+    private boolean isProcessingFrame = false;
+    private byte[][] yuvBytes = new byte[3][];
+    private int[] rgbBytes = null;
+    private int yRowStride;
+    private Runnable postInferenceCallback;
+    private Runnable imageConverter;
+    private Bitmap rgbFrameBitmap;
+    Image image;
+
+    @Override
+    public void onImageAvailable(ImageReader reader) {
+        // We need wait until we have some size from onPreviewSizeChosen
+        if (previewWidth == 0 || previewHeight == 0) {
+            Log.d(TAG,"RETURN 1 ");
+            return;
+        }
+        if (rgbBytes == null) {
+            rgbBytes = new int[previewWidth * previewHeight];
+        }
+        try {
+            image = reader.acquireLatestImage();
+
+            if (image == null) {
+                Log.d(TAG,"RETURN 2 ");
+                return;
+            }
+            Log.d(TAG, String.valueOf(isProcessingFrame));
+
+//            if (isProcessingFrame) {
+//                image.close();
+//                Log.d(TAG,"RETURN 3 ");
+//                return;
+//            }
+            isProcessingFrame = true;
+            final Image.Plane[] planes = image.getPlanes();
+            fillBytes(planes, yuvBytes);
+            yRowStride = planes[0].getRowStride();
+            final int uvRowStride = planes[1].getRowStride();
+            final int uvPixelStride = planes[1].getPixelStride();
+
+            imageConverter =
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            ImageUtils.convertYUV420ToARGB8888(
+                                    yuvBytes[0],
+                                    yuvBytes[1],
+                                    yuvBytes[2],
+                                    previewWidth,
+                                    previewHeight,
+                                    yRowStride,
+                                    uvRowStride,
+                                    uvPixelStride,
+                                    rgbBytes);
+                        }
+                    };
+
+            postInferenceCallback =
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            image.close();
+                            isProcessingFrame = false;
+                        }
+                    };
+
+            processImage();
+
+        } catch (final Exception e) {
+            Log.d(TAG,e.getMessage()+"abc ");
+            return;
+        }
+
+    }
+
+
+    String result = "";
+    Bitmap croppedBitmap;
+    private MultiBoxTracker tracker;
+    public void processImage(){
+        Log.d(TAG,"PROCCESS IMAGE 1");
+        imageConverter.run();;
+        rgbFrameBitmap.setPixels(rgbBytes, 0, previewWidth, 0, 0, previewWidth, previewHeight);
+        final Canvas canvas = new Canvas(croppedBitmap);
+        canvas.drawBitmap(rgbFrameBitmap, frameToCropTransform, null);
+
+        new Handler().post(new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG,"PROCCESS IMAGE 2");
+                //TODO pass image to model and get results
+                List<Detector.Recognition> results = detector.recognizeImage(rgbFrameBitmap);
+                float minimumConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
+
+                final List<Detector.Recognition> mappedRecognitions =
+                        new ArrayList<>();
+
+                int maxObjects = 2;
+                int currentObject =0;
+                for (final Detector.Recognition result : results) {
+                    if(currentObject != maxObjects){
+                        if (result.getConfidence() >= minimumConfidence) {
+                            mappedRecognitions.add(result);
+                            currentObject++;
+                        }
+                    }
+                }
+
+                tracker.trackResults(mappedRecognitions, 2);
+                trackingOverlay.postInvalidate();
+                postInferenceCallback.run();
+
+                image.close();
+                isProcessingFrame = false;
+                Log.d(TAG,"RETURN CLOSE ");
+            }
+        });
+    }
+
+    protected void fillBytes(final Image.Plane[] planes, final byte[][] yuvBytes) {
+        // Because of the variable row stride it's not possible to know in
+        // advance the actual necessary dimensions of the yuv planes.
+        for (int i = 0; i < planes.length; ++i) {
+            final ByteBuffer buffer = planes[i].getBuffer();
+            if (yuvBytes[i] == null) {
+                yuvBytes[i] = new byte[buffer.capacity()];
+            }
+            buffer.get(yuvBytes[i]);
+        }
+    }
+    protected int getScreenOrientation() {
+        switch (getWindowManager().getDefaultDisplay().getRotation()) {
+            case Surface.ROTATION_270:
+                return 270;
+            case Surface.ROTATION_180:
+                return 180;
+            case Surface.ROTATION_90:
+                return 90;
+            default:
+                return 0;
+        }
     }
 
     @Override
@@ -465,61 +729,39 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         thread.start();
     }
 
+    public void triggerServerCommand(String commandKey,String commandText) {
+        Thread thread = new Thread() {
+            @Override
+            public void run() {
+                try
+                {
+                    if(isDeviceConnected){
+                        btSocket.getOutputStream().write(commandText.getBytes());
+                        triggerServerDeleteCommand(commandKey);
+                    }
+                }
+                catch (IOException e)
+                {
+                    Log.d(TAG, "ERROR SOCCKET");
+                }
+            }
+        };
+        thread.start();
+    }
+
+    public void triggerServerDeleteCommand(String commandKey) {
+        Log.d(TAG, commandKey);
+        FirebaseDatabase database = FirebaseDatabase.getInstance();
+        DatabaseReference reference = database.getReference("commands");
+
+        reference.child(commandKey).removeValue();
+    }
+
     @Override
     public void onMapClick(LatLng point) {
         String latlng = point.latitude + "x" + point.longitude;
         ((MyApplication) getApplication()).addWaypoint(latlng);
         myMap.addMarker(new MarkerOptions().position(point).title("Waypoint"));
-    }
-
-    public void classifyImage(Bitmap image) {
-        try {
-            ModelUnquant model = ModelUnquant.newInstance(getApplicationContext());
-            TensorBuffer inputFeature0 = TensorBuffer.createFixedSize(new int[]{1, 224, 224, 3}, DataType.FLOAT32);
-            ByteBuffer byteBuffer = ByteBuffer.allocateDirect(4*imageSize*imageSize*3);
-            byteBuffer.order(ByteOrder.nativeOrder());
-
-            int [] intValues = new int[imageSize*imageSize];
-            image.getPixels(intValues,0,image.getWidth(),0,0,image.getWidth(),image.getHeight());
-            int pixel = 0;
-            for(int i = 0; i < imageSize; i++){
-                for(int j = 0; j < imageSize; j++){
-                    int val = intValues[pixel++]; // RGB
-                    byteBuffer.putFloat(((val >> 16) & 0xFF)*(1.f/255.f));
-                    byteBuffer.putFloat(((val >> 8) & 0xFF)*(1.f/255.f));
-                    byteBuffer.putFloat((val & 0xFF)*(1.f/255.f));
-                }
-            }
-
-            inputFeature0.loadBuffer(byteBuffer);
-
-            ModelUnquant.Outputs outputs = model.process(inputFeature0);
-            TensorBuffer outputFeature0 = outputs.getOutputFeature0AsTensorBuffer();
-
-            float[] confidences = outputFeature0.getFloatArray();
-            int maxPos = 0;
-            float maxConfidence = 0;
-            for(int i = 0; i < confidences.length; i++){
-                if(confidences[i] > maxConfidence){
-                    maxConfidence = confidences[i];
-                    maxPos = i;
-                }
-            }
-
-            String[] classes = {"Cat", "Person", "Cup", "Laptop"};
-
-            tVobject.setText("Object Detected: "+ classes[maxPos]);
-
-            String s = "";
-            for(int i = 0; i < classes.length; i++){
-                s += String.format("%s: %.1f%%\n", classes[i], confidences[i] * 100);
-            }
-
-
-            model.close();
-        } catch (IOException e) {
-            Log.e(TAG,"Error: " + e.getMessage());
-        }
     }
 
     @Override
@@ -541,224 +783,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             Double lng = Double.parseDouble(locSeparated[1]);
             LatLng currentLoc = new LatLng(lat, lng);
             myMap.addMarker(new MarkerOptions().position(currentLoc).title("Waypoint").icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)));
-        }
-    }
-
-    private class HttpHandler extends Handler
-    {
-        public HttpHandler(Looper looper)
-        {
-            super(looper);
-        }
-
-        @Override
-        public void handleMessage(Message msg)
-        {
-            switch (msg.what)
-            {
-                case ID_CONNECT:
-                    VideoStream();
-                    break;
-                case ID_FLASH:
-                    SetFlash();
-                    break;
-                case ID_RSSI:
-                    GetRSSI();
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-
-    private void SetFlash()
-    {
-        flash_on_off ^= true;
-
-        String flash_url;
-        if(flash_on_off){
-            flash_url = "http://" + ip_text + ":80/led?var=flash&val=1";
-        }
-        else {
-            flash_url = "http://" + ip_text + ":80/led?var=flash&val=0";
-        }
-
-        try
-        {
-
-            URL url = new URL(flash_url);
-
-            HttpURLConnection huc = (HttpURLConnection) url.openConnection();
-            huc.setRequestMethod("GET");
-            huc.setConnectTimeout(1000 * 5);
-            huc.setReadTimeout(1000 * 5);
-            huc.setDoInput(true);
-            huc.connect();
-            if (huc.getResponseCode() == 200)
-            {
-                InputStream in = huc.getInputStream();
-
-                InputStreamReader isr = new InputStreamReader(in);
-                BufferedReader br = new BufferedReader(isr);
-            }
-
-        } catch (Exception e)
-        {
-            e.printStackTrace();
-        }
-    }
-
-    private void GetRSSI() {
-        rssi_handler.sendEmptyMessageDelayed(ID_RSSI,500);
-
-        String rssi_url = "http://" + ip_text + ":80/RSSI";
-
-        try {
-            URL url = new URL(rssi_url);
-
-            try {
-
-                HttpURLConnection huc = (HttpURLConnection) url.openConnection();
-                huc.setRequestMethod("GET");
-                huc.setConnectTimeout(1000 * 5);
-                huc.setReadTimeout(1000 * 5);
-                huc.setDoInput(true);
-                huc.connect();
-                if (huc.getResponseCode() == 200) {
-                    InputStream in = huc.getInputStream();
-
-                    InputStreamReader isr = new InputStreamReader(in);
-                    BufferedReader br = new BufferedReader(isr);
-                    final String data = br.readLine();
-                    if (!data.isEmpty()) {
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                //rssi_text.setText(data);
-                            }
-                        });
-                    }
-
-                }
-
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }catch (MalformedURLException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void VideoStream()
-    {
-        String stream_url = "http://" + ip_text + ":81/stream";
-
-        BufferedInputStream bis = null;
-        FileOutputStream fos = null;
-        try
-        {
-            Log.e(TAG,"Video Started");
-            URL url = new URL(stream_url);
-
-            try
-            {
-                HttpURLConnection huc = (HttpURLConnection) url.openConnection();
-                huc.setRequestMethod("GET");
-                huc.setConnectTimeout(1000 * 5);
-                huc.setReadTimeout(1000 * 5);
-                huc.setDoInput(true);
-                huc.connect();
-
-                if (huc.getResponseCode() == 200)
-                {
-                    InputStream in = huc.getInputStream();
-
-                    InputStreamReader isr = new InputStreamReader(in);
-                    BufferedReader br = new BufferedReader(isr);
-
-                    String data;
-
-                    int len;
-                    byte[] buffer;
-
-                    while ((data = br.readLine()) != null)
-                    {
-                        if (data.contains("Content-Type:"))
-                        {
-                            data = br.readLine();
-
-                            len = Integer.parseInt(data.split(":")[1].trim());
-
-                            bis = new BufferedInputStream(in);
-                            buffer = new byte[len];
-
-                            int t = 0;
-                            while (t < len)
-                            {
-                                t += bis.read(buffer, t, len - t);
-                            }
-
-                            Bytes2ImageFile(buffer, getExternalFilesDir(Environment.DIRECTORY_PICTURES) + "/0A.jpg");
-
-                            final Bitmap bitmap = BitmapFactory.decodeFile(getExternalFilesDir(Environment.DIRECTORY_PICTURES) + "/0A.jpg");
-
-                            runOnUiThread(new Runnable()
-                            {
-                                @Override
-                                public void run()
-                                {
-                                    monitor.setImageBitmap(bitmap);
-                                }
-                            });
-
-                        }
-
-
-                    }
-                }
-
-            } catch (IOException e)
-            {
-                Log.e(TAG,"Error:" + e.getMessage());
-            }
-        }
-        catch (MalformedURLException e)
-        {
-            Log.e(TAG,"Error:" + e.getMessage());
-        } finally
-        {
-            try
-            {
-                if (bis != null)
-                {
-                    bis.close();
-                }
-                if (fos != null)
-                {
-                    fos.close();
-                }
-
-                stream_handler.sendEmptyMessageDelayed(ID_CONNECT,3000);
-            } catch (IOException e)
-            {
-                Log.e(TAG,"Error:" + e.getMessage());
-            }
-        }
-
-    }
-
-    private void Bytes2ImageFile(byte[] bytes, String fileName)
-    {
-        try
-        {
-            File file = new File(fileName);
-            FileOutputStream fos = new FileOutputStream(file);
-            fos.write(bytes, 0, bytes.length);
-            fos.flush();
-            fos.close();
-        } catch (Exception e)
-        {
-            e.printStackTrace();
         }
     }
 
@@ -792,6 +816,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         unregisterReceiver(mBroadcastReceiver2);
         unregisterReceiver(mBroadcastReceiver4);
         compass = null;
+        detector.close();
     }
 
     @Override
@@ -799,6 +824,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         super.onStart();
         Log.d(TAG, "start compass");
         compass.start();
+        commandAdapter.startListening();
     }
 
     @Override
@@ -825,6 +851,15 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                                 throw new RuntimeException(e);
                             }
                         }
+                    }else if(CurrentMode.equals("Manual")){
+                        int serverCommandCount = commandAdapter.getItemCount();
+                        rvCommands.scrollToPosition(commandAdapter.getItemCount() - 1);
+                        if(serverCommandCount > 0){
+                            ModelCommand viewItem = commandAdapter.getItem(commandAdapter.getItemCount()-1);
+                            String commandKey = String.valueOf(viewItem.getKey());
+                            String commandText = String.valueOf(viewItem.getCommand());
+                            triggerServerCommand(commandKey, commandText);
+                        }
                     }
                 }
             }
@@ -839,6 +874,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         Log.d(TAG, "stop compass");
         compass.stop();
         handler.removeCallbacks(runnable);
+        commandAdapter.stopListening();
     }
 
     private void setupCompass() {
@@ -946,6 +982,14 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             if (arduinoBTModule != null) {
                 SendData(deviceAddress);
             }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if(requestCode == PERMISSION_CODE && grantResults.length>0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+            setFragment();
         }
     }
 
