@@ -39,9 +39,9 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -55,7 +55,6 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
-import com.example.catchcontroller.ml.ModelUnquant;
 import com.firebase.ui.database.FirebaseRecyclerOptions;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
@@ -67,46 +66,31 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import java.nio.ByteBuffer;
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
-
-import android.Manifest;
 import android.app.Fragment;
-import android.content.Context;
-import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
-import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraManager;
 import android.media.Image;
 import android.media.ImageReader;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.util.Log;
 import android.util.Size;
 import android.util.TypedValue;
 import android.view.Surface;
-import android.widget.Toast;
-
 import com.example.catchcontroller.Drawing.BorderedText;
 import com.example.catchcontroller.Drawing.MultiBoxTracker;
 import com.example.catchcontroller.Drawing.OverlayView;
 import com.example.catchcontroller.livefeed.CameraConnectionFragment;
 import com.example.catchcontroller.livefeed.ImageUtils;
-
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.UploadTask;
 
 public class MainActivity extends AppCompatActivity implements
         AdapterView.OnItemClickListener,
@@ -142,8 +126,6 @@ public class MainActivity extends AppCompatActivity implements
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.BLUETOOTH,
             Manifest.permission.CAMERA};
-
-    int imageSize = 224;
 
     Button btnScan,btnAddWaypoint,btnSpeak,btnListen;
     ImageButton btnForward, btnBackward, btnStop, btnLeft, btnRight;
@@ -188,6 +170,9 @@ public class MainActivity extends AppCompatActivity implements
     private BorderedText borderedText;
     private Detector detector;
     Handler handler2;
+
+    StorageReference storageReference;
+    byte[] imageUri;
 
     @SuppressLint("MissingPermission")
     @Override
@@ -340,26 +325,10 @@ public class MainActivity extends AppCompatActivity implements
         btnScan.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                triggerServerUploadImageCommand();
                 ScanDevices ();
             }
         });
-
-//        btnAnalized = findViewById(R.id.btnAnalized);
-//        btnAnalized.setOnClickListener(new View.OnClickListener() {
-//            @Override
-//            public void onClick(View view) {
-////                BitmapDrawable bitmapDrawable = (BitmapDrawable) monitor.getDrawable();
-////                Bitmap bitmap = bitmapDrawable.getBitmap();
-////
-////                int dimension = Math.min(bitmap.getWidth(),bitmap.getHeight());
-////                bitmap = ThumbnailUtils.extractThumbnail(bitmap,dimension,dimension);
-////                monitor.setImageBitmap(bitmap);
-////
-////                bitmap = Bitmap.createScaledBitmap(bitmap,imageSize,imageSize,false);
-////
-////                classifyImage(bitmap);
-//            }
-//        });
 
         btnForward = findViewById(R.id.btnForward);
         btnForward.setOnClickListener(new View.OnClickListener() {
@@ -413,7 +382,7 @@ public class MainActivity extends AppCompatActivity implements
         final CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         String cameraId = null;
         try {
-            cameraId = manager.getCameraIdList()[1];
+            cameraId = manager.getCameraIdList()[0];
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
@@ -501,7 +470,6 @@ public class MainActivity extends AppCompatActivity implements
         }
         try {
             image = reader.acquireLatestImage();
-
             if (image == null) {
                 Log.d(TAG,"RETURN 2 ");
                 return;
@@ -563,6 +531,12 @@ public class MainActivity extends AppCompatActivity implements
         Log.d(TAG,"PROCCESS IMAGE 1");
         imageConverter.run();;
         rgbFrameBitmap.setPixels(rgbBytes, 0, previewWidth, 0, 0, previewWidth, previewHeight);
+
+        Bitmap croppedBitmapNew = croppedBitmap;
+        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+        croppedBitmapNew.compress(Bitmap.CompressFormat.JPEG,80,stream);
+        imageUri = stream.toByteArray();
+
         final Canvas canvas = new Canvas(croppedBitmap);
         canvas.drawBitmap(rgbFrameBitmap, frameToCropTransform, null);
 
@@ -610,6 +584,7 @@ public class MainActivity extends AppCompatActivity implements
             buffer.get(yuvBytes[i]);
         }
     }
+
     protected int getScreenOrientation() {
         switch (getWindowManager().getDefaultDisplay().getRotation()) {
             case Surface.ROTATION_270:
@@ -755,6 +730,25 @@ public class MainActivity extends AppCompatActivity implements
         DatabaseReference reference = database.getReference("commands");
 
         reference.child(commandKey).removeValue();
+    }
+
+    public void triggerServerUploadImageCommand() {
+        String fileName = "cameracapture";
+        storageReference = FirebaseStorage.getInstance().getReference("images/"+fileName);
+
+        storageReference.putBytes(imageUri)
+                .addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
+                    @Override
+                    public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
+
+                        Toast.makeText(MainActivity.this,"Successfully Uploaded",Toast.LENGTH_SHORT).show();
+                    }
+                }).addOnFailureListener(new OnFailureListener() {
+                    @Override
+                    public void onFailure(@NonNull Exception e) {
+                        Toast.makeText(MainActivity.this,"Failed to Upload",Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
     @Override
