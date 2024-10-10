@@ -21,6 +21,14 @@
             android:text="command" />
 
         <TextView
+            android:id="@+id/tvCommandType"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="5dp"
+            android:text="commandType" />
+
+        <TextView
             android:id="@+id/tvKey"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

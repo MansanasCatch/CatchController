@@ -15,8 +15,11 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
 import android.util.Log;
 import android.view.View;
@@ -44,8 +47,10 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -72,6 +77,8 @@ import com.google.android.gms.tasks.Task;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import java.nio.ByteBuffer;
+import java.util.stream.Collectors;
+
 import android.app.Fragment;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
@@ -91,6 +98,23 @@ import com.example.catchcontroller.livefeed.ImageUtils;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageReference;
 import com.google.firebase.storage.UploadTask;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import okhttp3.MediaType;
+import okhttp3.RequestBody;
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+import retrofit2.Retrofit;
+import retrofit2.converter.gson.GsonConverterFactory;
 
 public class MainActivity extends AppCompatActivity implements
         AdapterView.OnItemClickListener,
@@ -148,7 +172,7 @@ public class MainActivity extends AppCompatActivity implements
 
     Handler handler = new Handler();
     Runnable runnable;
-    int delaySend = 1000;
+    int delaySend = 500;
     float currentHeading;
     boolean isDeviceConnected = false;
 
@@ -174,6 +198,16 @@ public class MainActivity extends AppCompatActivity implements
     StorageReference storageReference;
     byte[] imageUri;
 
+    private boolean speakingEnd = false;
+    private boolean hasSpeakingTask = false;
+
+    private SpeechRecognizer mSpeechRecognizer;
+    private Intent mSpeechRecognizerIntent;
+
+    private boolean hasPerson = false;
+    private boolean hasInitAica =false;
+    private int hasPersonCounter = 0;
+
     @SuppressLint("MissingPermission")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -198,7 +232,6 @@ public class MainActivity extends AppCompatActivity implements
             }
         }
 
-        //TODO intialize the tracker to draw rectangles
         tracker = new MultiBoxTracker(this);
         try {
             detector =
@@ -208,10 +241,8 @@ public class MainActivity extends AppCompatActivity implements
                             "labelmap.txt",
                             TF_OD_API_INPUT_SIZE,
                             true);
-            Log.d(TAG,"success");
             Toast.makeText(this, "Model loaded Successfully", Toast.LENGTH_SHORT).show();
         } catch (final IOException e) {
-            Log.d(TAG,"error in town"+e.getMessage());
         }
 
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
@@ -261,16 +292,35 @@ public class MainActivity extends AppCompatActivity implements
             }
         });
 
-        tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+        tts = new TextToSpeech(this, new TextToSpeech.OnInitListener()  {
             @Override
             public void onInit(int status) {
-                tts.setLanguage(Locale.US);
-                tts.setSpeechRate(1.0f);
-                tts.setPitch(1.0f);
-                Set<Voice> voices = tts.getVoices();
-                List<Voice> voiceList = new ArrayList<>(voices);
-                Voice selectedVoice = voiceList.get(5);
-                tts.setVoice(selectedVoice);
+                if (status==TextToSpeech.SUCCESS){
+                    tts.setLanguage(Locale.US);
+                    tts.setSpeechRate(1.0f);
+                    tts.setPitch(1.0f);
+                    Set<Voice> voices = tts.getVoices();
+                    List<Voice> voiceList = new ArrayList<>(voices);
+                    Voice selectedVoice = voiceList.get(5);
+                    tts.setVoice(selectedVoice);
+
+                    tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                        @Override
+                        public void onStart(String utteranceId) {
+                        }
+
+                        @Override
+                        public void onDone(String utteranceId) {
+                            Toast.makeText(MainActivity.this,"TTS IS COMPLETED",Toast.LENGTH_SHORT).show();
+                        }
+
+                        @Override
+                        public void onError(String utteranceId) {
+
+                        }
+                    });
+                }else {
+                }
             }
         });
 
@@ -288,23 +338,7 @@ public class MainActivity extends AppCompatActivity implements
         btnListen.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                Intent intent
-                        = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,
-                        Locale.getDefault());
-                intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to text");
-
-                try {
-                    startActivityForResult(intent, REQUEST_CODE_SPEECH_INPUT);
-                }
-                catch (Exception e) {
-                    Toast
-                            .makeText(MainActivity.this, " " + e.getMessage(),
-                                    Toast.LENGTH_SHORT)
-                            .show();
-                }
+                startListening();
             }
         });
 
@@ -325,7 +359,6 @@ public class MainActivity extends AppCompatActivity implements
         btnScan.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                triggerServerUploadImageCommand();
                 ScanDevices ();
             }
         });
@@ -431,7 +464,6 @@ public class MainActivity extends AppCompatActivity implements
                                             @Override
                                             public void drawCallback(final Canvas canvas) {
                                                 tracker.draw(canvas);
-                                                Log.d(TAG,"inside draw");
                                             }
                                         });
 
@@ -460,9 +492,7 @@ public class MainActivity extends AppCompatActivity implements
 
     @Override
     public void onImageAvailable(ImageReader reader) {
-        // We need wait until we have some size from onPreviewSizeChosen
         if (previewWidth == 0 || previewHeight == 0) {
-            Log.d(TAG,"RETURN 1 ");
             return;
         }
         if (rgbBytes == null) {
@@ -471,16 +501,14 @@ public class MainActivity extends AppCompatActivity implements
         try {
             image = reader.acquireLatestImage();
             if (image == null) {
-                Log.d(TAG,"RETURN 2 ");
                 return;
             }
-            Log.d(TAG, String.valueOf(isProcessingFrame));
 
 //            if (isProcessingFrame) {
 //                image.close();
-//                Log.d(TAG,"RETURN 3 ");
 //                return;
 //            }
+
             isProcessingFrame = true;
             final Image.Plane[] planes = image.getPlanes();
             fillBytes(planes, yuvBytes);
@@ -517,25 +545,26 @@ public class MainActivity extends AppCompatActivity implements
             processImage();
 
         } catch (final Exception e) {
-            Log.d(TAG,e.getMessage()+"abc ");
             return;
         }
-
     }
-
 
     String result = "";
     Bitmap croppedBitmap;
     private MultiBoxTracker tracker;
     public void processImage(){
-        Log.d(TAG,"PROCCESS IMAGE 1");
         imageConverter.run();;
         rgbFrameBitmap.setPixels(rgbBytes, 0, previewWidth, 0, 0, previewWidth, previewHeight);
 
         Bitmap croppedBitmapNew = croppedBitmap;
         ByteArrayOutputStream stream = new ByteArrayOutputStream();
         croppedBitmapNew.compress(Bitmap.CompressFormat.JPEG,80,stream);
-        imageUri = stream.toByteArray();
+
+        if(stream != null){
+            imageUri = stream.toByteArray();
+        }else{
+            imageUri = null;
+        }
 
         final Canvas canvas = new Canvas(croppedBitmap);
         canvas.drawBitmap(rgbFrameBitmap, frameToCropTransform, null);
@@ -543,8 +572,6 @@ public class MainActivity extends AppCompatActivity implements
         new Handler().post(new Runnable() {
             @Override
             public void run() {
-                Log.d(TAG,"PROCCESS IMAGE 2");
-                //TODO pass image to model and get results
                 List<Detector.Recognition> results = detector.recognizeImage(rgbFrameBitmap);
                 float minimumConfidence = MINIMUM_CONFIDENCE_TF_OD_API;
 
@@ -553,6 +580,7 @@ public class MainActivity extends AppCompatActivity implements
 
                 int maxObjects = 2;
                 int currentObject =0;
+
                 for (final Detector.Recognition result : results) {
                     if(currentObject != maxObjects){
                         if (result.getConfidence() >= minimumConfidence) {
@@ -562,13 +590,26 @@ public class MainActivity extends AppCompatActivity implements
                     }
                 }
 
+                String findObject = "person";
+
+                List<Detector.Recognition> filtered = mappedRecognitions.stream()
+                        .filter(u -> findObject.contains(u.getTitle()))
+                        .collect(Collectors.toList());
+
+                if(filtered.size() > 0){
+                    hasPerson = true;
+                    hasPersonCounter = 0;
+                }else{
+                    hasPerson = false;
+                    hasPersonCounter ++;
+                }
+
                 tracker.trackResults(mappedRecognitions, 2);
                 trackingOverlay.postInvalidate();
                 postInferenceCallback.run();
 
                 image.close();
                 isProcessingFrame = false;
-                Log.d(TAG,"RETURN CLOSE ");
             }
         });
     }
@@ -598,40 +639,123 @@ public class MainActivity extends AppCompatActivity implements
         }
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode,
-                                    @Nullable Intent data)
-    {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CODE_SPEECH_INPUT) {
-            if (resultCode == RESULT_OK && data != null) {
-                ArrayList<String> result = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-                String dataText =Objects.requireNonNull(result).get(0);
-                txtTextToSpeech.setText(dataText);
-                if(CurrentMode == "Manual"){
-                    if(dataText.contains("turn left")){
-                        triggerSpeak("turning left");
-                        String command = "A";
-                        triggerCommand(command);
-                    }else if(dataText.contains("turn right")){
-                        triggerSpeak("turning right");
-                        String command = "D";
-                        triggerCommand(command);
-                    }else if(dataText.contains("go forward")){
-                        triggerSpeak("going forward");
-                        String command = "W";
-                        triggerCommand(command);
-                    }else if(dataText.contains("go backward")){
-                        triggerSpeak("going backward");
-                        String command = "S";
-                        triggerCommand(command);
-                    }else if(dataText.contains("stop")){
-                        triggerSpeak("stoping");
-                        String command = "X";
-                        triggerCommand(command);
+    public void startAutoRecognition(){
+        speakingEnd = tts.isSpeaking();
+        if(speakingEnd == false && hasSpeakingTask == false){
+            hasSpeakingTask = true;
+            startListening();
+        }
+    }
+
+    public void startListening(){
+        try {
+            mSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            mSpeechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            mSpeechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            mSpeechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+            mSpeechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, this.getPackageName());
+
+            mSpeechRecognizer.startListening(mSpeechRecognizerIntent);
+
+            mSpeechRecognizer.setRecognitionListener(new RecognitionListener() {
+
+                @Override
+                public void onBeginningOfSpeech() {
+                    // TODO Auto-generated method stub
+
+                }
+
+                @Override
+                public void onBufferReceived(byte[] arg0) {
+                    // TODO Auto-generated method stub
+
+                }
+
+                @Override
+                public void onEndOfSpeech() {
+                    // TODO Auto-generated method stub
+
+                }
+
+                @Override
+                public void onError(int arg0) {
+                    if(CurrentMode.equals("Conversation")){
+                        hasSpeakingTask = true;
+                        startListening();
                     }
                 }
-            }
+
+                @Override
+                public void onEvent(int arg0, Bundle arg1) {
+                    // TODO Auto-generated method stub
+
+                }
+
+                @Override
+                public void onPartialResults(Bundle partialResults) {
+                    // TODO Auto-generated method stub
+
+                }
+
+                @Override
+                public void onReadyForSpeech(Bundle params) {
+                    // TODO Auto-generated method stub
+
+                }
+
+                @Override
+                public void onResults(Bundle results) {
+                    ArrayList<String> result = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if(result != null){
+                        String dataText =Objects.requireNonNull(result).get(0);
+                        if(dataText != null){
+                            txtTextToSpeech.setText(dataText);
+                            if(CurrentMode.equals("Conversation")){
+                                SendAICARequest(dataText);
+                            }
+//                        if(CurrentMode == "Manual"){
+//                            if(dataText.contains("turn left")){
+//                                triggerSpeak("turning left");
+//                                String command = "A";
+//                                triggerCommand(command);
+//                            }else if(dataText.contains("turn right")){
+//                                triggerSpeak("turning right");
+//                                String command = "D";
+//                                triggerCommand(command);
+//                            }else if(dataText.contains("go forward")){
+//                                triggerSpeak("going forward");
+//                                String command = "W";
+//                                triggerCommand(command);
+//                            }else if(dataText.contains("go backward")){
+//                                triggerSpeak("going backward");
+//                                String command = "S";
+//                                triggerCommand(command);
+//                            }else if(dataText.contains("stop")){
+//                                triggerSpeak("stoping");
+//                                String command = "X";
+//                                triggerCommand(command);
+//                            }
+//                        }
+                        }else {
+                            hasSpeakingTask = true;
+                            startListening();
+                        }
+                    }else{
+                        hasSpeakingTask = true;
+                        startListening();
+                    }
+                }
+
+                @Override
+                public void onRmsChanged(float rmsdB) {
+                    // TODO Auto-generated method stub
+
+                }
+
+            });
+        }
+        catch (Exception e) {
+
         }
     }
 
@@ -681,8 +805,58 @@ public class MainActivity extends AppCompatActivity implements
         myMap.moveCamera(CameraUpdateFactory.newLatLngZoom(current, 35));
     }
 
+    public void SendAICARequest(String mesRequest){
+        Retrofit retrofit = new Retrofit.Builder()
+                .baseUrl("http://aica.fun/api/")
+                .addConverterFactory(GsonConverterFactory.create())
+                .build();
+        RetrofitAPI retrofitAPI = retrofit.create(RetrofitAPI.class);
+
+        MessageModel objectMessage = new MessageModel();
+        objectMessage.content = mesRequest;
+        objectMessage.role = "user";
+
+        List<MessageModel> messagesO = new ArrayList<>();
+        messagesO.add(objectMessage);
+
+        MessageBody messages = new MessageBody();
+        messages.messages = messagesO;
+
+        Call<ResponseBody> call = retrofitAPI.createPost(messages);
+
+        call.enqueue(new Callback<ResponseBody>() {
+            @Override
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
+                try {
+                    String body = response.body().string();
+                    JSONObject obj = new JSONObject(body);
+                    String content = obj.getString("content");
+
+                    triggerSpeak(content);
+
+                    if(content.contains("Goodbye")){
+                        RadioGroup modeGroup= findViewById(R.id.ModeGroup);
+                        ((RadioButton)modeGroup.getChildAt(0)).setChecked(true);
+                        CurrentMode = "Manual";
+                        hasInitAica = false;
+                    }
+
+                    hasSpeakingTask = false;
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                } catch (JSONException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            @Override
+            public void onFailure(Call<ResponseBody> call, Throwable t) {
+                Toast.makeText(MainActivity.this, "Error found is : " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
     public void triggerSpeak(String text) {
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+        tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,TextToSpeech.ACTION_TTS_QUEUE_PROCESSING_COMPLETED);
     }
 
     public void triggerCommand(String command) {
@@ -697,14 +871,13 @@ public class MainActivity extends AppCompatActivity implements
                 }
                 catch (IOException e)
                 {
-                    Log.d(TAG, "ERROR SOCCKET");
                 }
             }
         };
         thread.start();
     }
 
-    public void triggerServerCommand(String commandKey,String commandText) {
+    public void triggerServerCommandMove(String commandKey,String commandText) {
         Thread thread = new Thread() {
             @Override
             public void run() {
@@ -717,15 +890,18 @@ public class MainActivity extends AppCompatActivity implements
                 }
                 catch (IOException e)
                 {
-                    Log.d(TAG, "ERROR SOCCKET");
                 }
             }
         };
         thread.start();
     }
 
+    public void triggerServerCommandSpeak(String commandKey,String speachedText) {
+        triggerSpeak(speachedText);
+        triggerServerDeleteCommand(commandKey);
+    }
+
     public void triggerServerDeleteCommand(String commandKey) {
-        Log.d(TAG, commandKey);
         FirebaseDatabase database = FirebaseDatabase.getInstance();
         DatabaseReference reference = database.getReference("commands");
 
@@ -733,22 +909,24 @@ public class MainActivity extends AppCompatActivity implements
     }
 
     public void triggerServerUploadImageCommand() {
-        String fileName = "cameracapture";
-        storageReference = FirebaseStorage.getInstance().getReference("images/"+fileName);
+        if(imageUri != null){
+            String fileName = "cameracapture";
+            storageReference = FirebaseStorage.getInstance().getReference("images/"+fileName);
 
-        storageReference.putBytes(imageUri)
-                .addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
-                    @Override
-                    public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
+            storageReference.putBytes(imageUri)
+                    .addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
+                        @Override
+                        public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
 
-                        Toast.makeText(MainActivity.this,"Successfully Uploaded",Toast.LENGTH_SHORT).show();
-                    }
-                }).addOnFailureListener(new OnFailureListener() {
-                    @Override
-                    public void onFailure(@NonNull Exception e) {
-                        Toast.makeText(MainActivity.this,"Failed to Upload",Toast.LENGTH_SHORT).show();
-                    }
-                });
+                            //Toast.makeText(MainActivity.this,"Successfully Uploaded",Toast.LENGTH_SHORT).show();
+                        }
+                    }).addOnFailureListener(new OnFailureListener() {
+                        @Override
+                        public void onFailure(@NonNull Exception e) {
+                            //Toast.makeText(MainActivity.this,"Failed to Upload",Toast.LENGTH_SHORT).show();
+                        }
+                    });
+        }
     }
 
     @Override
@@ -794,7 +972,6 @@ public class MainActivity extends AppCompatActivity implements
                 try {
                     btSocket =(BluetoothSocket) mBTDevice.getClass().getMethod("createRfcommSocket", new Class[] {int.class}).invoke(mBTDevice,1);
                     btSocket.connect();
-                    Log.e(TAG,"Connected");
                     isDeviceConnected = true;
                 } catch (NoSuchMethodException | IOException | InvocationTargetException |
                          IllegalAccessException ex) {
@@ -816,7 +993,6 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     protected void onStart() {
         super.onStart();
-        Log.d(TAG, "start compass");
         compass.start();
         commandAdapter.startListening();
     }
@@ -833,26 +1009,58 @@ public class MainActivity extends AppCompatActivity implements
         handler.postDelayed(runnable = new Runnable() {
             public void run() {
                 handler.postDelayed(runnable, delaySend);
-                if(isDeviceConnected){
-                    if(CurrentMode.equals("Automatic")){
-                        ArrayList<String> waypoints = ((MyApplication) getApplication()).getWaypoints();
-                        if(waypoints.size() > 0){
-                            try {
-                                String waypoint = waypoints.get(0);
-                                String command = currentHeading + "x"+ currentLatLng.latitude + "x" + currentLatLng.longitude + "x" + waypoint;
-                                btSocket.getOutputStream().write(command.getBytes());
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                    }else if(CurrentMode.equals("Manual")){
-                        int serverCommandCount = commandAdapter.getItemCount();
-                        rvCommands.scrollToPosition(commandAdapter.getItemCount() - 1);
-                        if(serverCommandCount > 0){
-                            ModelCommand viewItem = commandAdapter.getItem(commandAdapter.getItemCount()-1);
-                            String commandKey = String.valueOf(viewItem.getKey());
-                            String commandText = String.valueOf(viewItem.getCommand());
-                            triggerServerCommand(commandKey, commandText);
+
+                if(hasPersonCounter >= 10){
+                    RadioGroup modeGroup= findViewById(R.id.ModeGroup);
+                    ((RadioButton)modeGroup.getChildAt(0)).setChecked(true);
+                    CurrentMode = "Manual";
+                    hasSpeakingTask = false;
+                    hasInitAica = false;
+                }
+
+                if(hasPerson){
+                    RadioGroup modeGroup= findViewById(R.id.ModeGroup);
+                    ((RadioButton)modeGroup.getChildAt(2)).setChecked(true);
+                    CurrentMode = "Conversation";
+                    speakingEnd = tts.isSpeaking();
+                    if(!hasInitAica && !speakingEnd){
+                        hasSpeakingTask = true;
+                        hasInitAica = true;
+                        SendAICARequest("Hello");
+                    }
+                }
+
+                if(CurrentMode.equals("Conversation")){
+                    if(!hasSpeakingTask){
+                        startAutoRecognition();
+                    }
+                }
+
+                triggerServerUploadImageCommand();
+                if(CurrentMode.equals("Automatic")){
+//                        ArrayList<String> waypoints = ((MyApplication) getApplication()).getWaypoints();
+//                        if(waypoints.size() > 0){
+//                            try {
+//                                String waypoint = waypoints.get(0);
+//                                String command = currentHeading + "x"+ currentLatLng.latitude + "x" + currentLatLng.longitude + "x" + waypoint;
+//                                btSocket.getOutputStream().write(command.getBytes());
+//                            } catch (IOException e) {
+//                                throw new RuntimeException(e);
+//                            }
+//                        }
+                } else if(CurrentMode.equals("Manual")){
+                    int serverCommandCount = commandAdapter.getItemCount();
+                    rvCommands.scrollToPosition(commandAdapter.getItemCount() - 1);
+                    if(serverCommandCount > 0){
+                        ModelCommand viewItem = commandAdapter.getItem(commandAdapter.getItemCount()-1);
+                        String commandKey = String.valueOf(viewItem.getKey());
+                        String commandText = String.valueOf(viewItem.getCommand());
+                        String commandType = String.valueOf(viewItem.getCommandType());
+
+                        if(commandType.equals("moved")){
+                            triggerServerCommandMove(commandKey, commandText);
+                        } else if(commandType.equals("speak")){
+                            triggerServerCommandSpeak(commandKey, commandText);
                         }
                     }
                 }
@@ -865,7 +1073,6 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     protected void onStop() {
         super.onStop();
-        Log.d(TAG, "stop compass");
         compass.stop();
         handler.removeCallbacks(runnable);
         commandAdapter.stopListening();
@@ -959,19 +1166,13 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
         bluetoothAdapter.cancelDiscovery();
-        Log.d(TAG, "onItemClick: You Clicked on a device.");
         String deviceName = mBTDevices.get(i).getName();
         String deviceAddress = mBTDevices.get(i).getAddress();
 
-        Log.d(TAG, "onItemClick: deviceName = " + deviceName);
-        Log.d(TAG, "onItemClick: deviceAddress = " + deviceAddress);
-
         if(Build.VERSION.SDK_INT > Build.VERSION_CODES.JELLY_BEAN_MR2){
-            Log.d(TAG, "Trying to pair with " + deviceName);
             mBTDevices.get(i).createBond();
             mBTDevice = mBTDevices.get(i);
             arduinoBTModule = mBTDevices.get(i);
-            Log.d(TAG, "UUIDS " + mBTDevice.getUuids().length);
             arduinoUUID = mBTDevice.getUuids()[0].getUuid();
             if (arduinoBTModule != null) {
                 SendData(deviceAddress);
@@ -990,7 +1191,6 @@ public class MainActivity extends AppCompatActivity implements
     private BroadcastReceiver BRScan = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            Log.w("myApp", "Received");
             final String action= intent.getAction();
             if(BluetoothDevice.ACTION_FOUND.equals(action)){
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {

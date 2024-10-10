@@ -20,6 +20,7 @@ public class CommandAdapter extends FirebaseRecyclerAdapter<ModelCommand,Command
     @Override
     protected void onBindViewHolder(@NonNull myViewHolder holder, int position, @NonNull ModelCommand model) {
         holder.tvCommand.setText(model.command);
+        holder.tvCommandType.setText(model.commandType);
         holder.tvKey.setText(model.key);
     }
 
@@ -32,11 +33,12 @@ public class CommandAdapter extends FirebaseRecyclerAdapter<ModelCommand,Command
 
     class myViewHolder extends RecyclerView.ViewHolder{
 
-        TextView tvCommand, tvKey;
+        TextView tvCommand, tvKey,tvCommandType;
 
         public myViewHolder(@NonNull View itemView) {
             super(itemView);
 
+            tvCommandType= itemView.findViewById(R.id.tvCommandType);
             tvCommand = itemView.findViewById(R.id.tvCommand);
             tvKey=itemView.findViewById(R.id.tvKey);
         }
